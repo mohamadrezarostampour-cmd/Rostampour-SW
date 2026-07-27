@@ -1,0 +1,1119 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rostampour Warehouse</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="favicon-32.png" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#000000">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Rostampour Warehouse">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyD3BGGIX2B104SdhML7eoxcvl3CjKGfXw4",
+    authDomain: "rostampour-water-billing.firebaseapp.com",
+    projectId: "rostampour-water-billing",
+    storageBucket: "rostampour-water-billing.firebasestorage.app",
+    messagingSenderId: "790326632020",
+    appId: "1:790326632020:web:91cb2da018fc5e061717c1"
+  };
+  const ROLE_MAP_EMAIL = {
+    'rostampour@rostampour-system.local': 'admin',
+    'station@rostampour-system.local': 'keeper'
+  };
+  const fbApp = initializeApp(firebaseConfig);
+  const fbAuth = getAuth(fbApp);
+  const db = getFirestore(fbApp);
+  const WH_DOC = doc(db, 'wh_meta', 'warehouse_data');
+
+  window.WHFirebase = {
+    signInWithEmailAndPassword: (email, pass) => signInWithEmailAndPassword(fbAuth, email, pass),
+    signInAnonymously: () => signInAnonymously(fbAuth),
+    getCurrentUser: () => fbAuth.currentUser,
+    async load() {
+      const snap = await getDoc(WH_DOC);
+      return snap.exists() ? snap.data() : null;
+    },
+    async save(data) {
+      await setDoc(WH_DOC, data);
+    }
+  };
+  onAuthStateChanged(fbAuth, (user) => {
+    const role = user ? (ROLE_MAP_EMAIL[user.email] || null) : null;
+    window.dispatchEvent(new CustomEvent('wh-auth-state', { detail: { user, role } }));
+  });
+</script>
+<style>
+:root{
+  --bg-0:#000000;
+  --bg-1:#0a0d12;
+  --bg-2:#11151c;
+  --bg-3:#181e28;
+  --line:#232b38;
+  --line-soft:#1b212c;
+  --txt-1:#eaf6ff;
+  --txt-2:#93b3cc;
+  --txt-3:#5e7690;
+  --accent:#38bdf8;
+  --accent-2:#7dd3fc;
+  --warn:#f5a524;
+  --danger:#f0475c;
+  --ok:#2ecf7a;
+  --shadow: 0 8px 28px rgba(0,0,0,.55);
+  --radius:14px;
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+body{
+  font-family:'Vazirmatn','Segoe UI',Tahoma,sans-serif;
+  background: radial-gradient(1200px 600px at 15% -10%, #0a1826 0%, transparent 60%),
+              radial-gradient(1000px 700px at 110% 10%, #08131e 0%, transparent 55%),
+              var(--bg-0);
+  color:var(--txt-1);
+  min-height:100vh;
+  direction:rtl;
+}
+::-webkit-scrollbar{width:9px; height:9px;}
+::-webkit-scrollbar-track{background:var(--bg-1);}
+::-webkit-scrollbar-thumb{background:var(--line); border-radius:8px;}
+
+#loginScreen{min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;}
+.login-card{width:100%; max-width:420px; background:linear-gradient(180deg, var(--bg-2), var(--bg-1)); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); padding:36px 30px;}
+.login-logo{width:64px; height:64px; border-radius:16px; background:linear-gradient(135deg, var(--accent), var(--accent-2)); display:flex; align-items:center; justify-content:center; font-size:28px; margin:0 auto 18px; box-shadow:0 6px 24px rgba(56,189,248,.35); overflow:hidden;}
+.login-logo img{width:100%; height:100%; object-fit:cover;}
+.install-btn{display:none; align-items:center; justify-content:center; gap:8px; margin-top:12px;}
+.install-btn.show{display:inline-flex;}
+.app-footer{margin-top:30px; padding:16px 0; text-align:center; font-size:11.5px; color:var(--txt-3); border-top:1px solid var(--line);}
+.app-footer b{color:var(--txt-2);}
+.login-footer{margin-top:22px; text-align:center; font-size:11px; color:var(--txt-3);}
+.login-title{text-align:center; font-size:19px; font-weight:700; margin-bottom:4px;}
+.login-sub{text-align:center; color:var(--txt-2); font-size:13px; margin-bottom:26px;}
+.field{margin-bottom:16px;}
+.field label{display:block; font-size:12.5px; color:var(--txt-2); margin-bottom:6px;}
+.field input, .field select{width:100%; padding:11px 14px; border-radius:10px; background:var(--bg-3); border:1px solid var(--line); color:var(--txt-1); font-family:inherit; font-size:14px; outline:none; transition:.15s;}
+.field input:focus, .field select:focus{border-color:var(--accent); box-shadow:0 0 0 3px rgba(56,189,248,.15);}
+.btn{display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:11px 18px; border-radius:10px; border:none; cursor:pointer; font-family:inherit; font-size:14px; font-weight:600; transition:.15s;}
+.btn-primary{background:linear-gradient(135deg, var(--accent), #0ea5e9); color:#03151f; width:100%;}
+.btn-primary:hover{filter:brightness(1.08); transform:translateY(-1px);}
+.btn-ghost{background:transparent; border:1px solid var(--line); color:var(--txt-2);}
+.btn-ghost:hover{border-color:var(--accent); color:var(--txt-1);}
+.btn-sm{padding:7px 12px; font-size:12.5px; border-radius:8px;}
+.login-err{color:var(--danger); font-size:12.5px; text-align:center; min-height:18px; margin-top:8px;}
+.login-hint{margin-top:20px; padding:12px; background:var(--bg-3); border-radius:10px; font-size:11.5px; color:var(--txt-3); line-height:1.9;}
+
+.app-shell{display:flex; min-height:100vh;}
+#appScreen{display:none;}
+.sidebar{width:250px; flex-shrink:0; background:var(--bg-1); border-left:1px solid var(--line); display:flex; flex-direction:column; position:sticky; top:0; height:100vh;}
+.sidebar-head{padding:20px 18px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:10px;}
+.sidebar-head .logo{width:38px; height:38px; border-radius:10px; background:linear-gradient(135deg, var(--accent), var(--accent-2)); display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0;}
+.sidebar-head .title{font-size:13.5px; font-weight:700; line-height:1.4;}
+.sidebar-head .sub{font-size:10.5px; color:var(--txt-3);}
+.nav{flex:1; overflow-y:auto; padding:14px 12px;}
+.nav-item{display:flex; align-items:center; gap:10px; padding:11px 14px; border-radius:10px; color:var(--txt-2); cursor:pointer; font-size:13.5px; margin-bottom:3px; transition:.15s; user-select:none;}
+.nav-item .ic{width:20px; text-align:center; font-size:15px;}
+.nav-item:hover{background:var(--bg-2); color:var(--txt-1);}
+.nav-item.active{background:linear-gradient(90deg, rgba(56,189,248,.18), rgba(56,189,248,.02)); color:#fff; border-right:3px solid var(--accent);}
+.sidebar-foot{padding:14px; border-top:1px solid var(--line);}
+.user-chip{display:flex; align-items:center; gap:10px; padding:8px 10px; background:var(--bg-2); border-radius:10px; margin-bottom:8px;}
+.user-chip .av{width:32px; height:32px; border-radius:8px; background:var(--bg-3); display:flex; align-items:center; justify-content:center; font-size:14px;}
+.user-chip .info{flex:1; min-width:0;}
+.user-chip .name{font-size:12.5px; font-weight:600;}
+.user-chip .role{font-size:10.5px; color:var(--txt-3);}
+
+.main{flex:1; min-width:0; padding:26px 30px; max-width:100%;}
+.topbar{display:flex; align-items:center; justify-content:space-between; margin-bottom:22px; flex-wrap:wrap; gap:12px;}
+.page-title{font-size:20px; font-weight:700;}
+.page-sub{font-size:12.5px; color:var(--txt-3); margin-top:3px;}
+.topbar-actions{display:flex; gap:10px; align-items:center; flex-wrap:wrap;}
+.badge{padding:3px 10px; border-radius:20px; font-size:11px; font-weight:600;}
+.badge-ok{background:rgba(46,207,122,.15); color:var(--ok);}
+.badge-warn{background:rgba(245,165,36,.18); color:var(--warn);}
+.badge-danger{background:rgba(240,71,92,.15); color:var(--danger);}
+.badge-muted{background:var(--bg-3); color:var(--txt-3);}
+
+.card{background:var(--bg-2); border:1px solid var(--line); border-radius:var(--radius); padding:20px;}
+.grid{display:grid; gap:16px;}
+.grid-4{grid-template-columns:repeat(4,1fr);}
+.grid-3{grid-template-columns:repeat(3,1fr);}
+.grid-2{grid-template-columns:repeat(2,1fr);}
+@media(max-width:1100px){.grid-4{grid-template-columns:repeat(2,1fr);} .grid-3{grid-template-columns:repeat(2,1fr);}}
+.mobile-menu-btn{display:none; position:fixed; top:14px; right:14px; z-index:70; width:44px; height:44px; border-radius:10px; background:var(--bg-2); border:1px solid var(--line); color:var(--txt-1); font-size:20px; align-items:center; justify-content:center; cursor:pointer; box-shadow:var(--shadow);}
+.sidebar-overlay{display:none; position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:45;}
+.sidebar-overlay.show{display:block;}
+@media(max-width:700px){.grid-4,.grid-3,.grid-2{grid-template-columns:1fr;} .sidebar{position:fixed; right:0; z-index:50; transform:translateX(100%); transition:.2s;} .sidebar.open{transform:translateX(0);} .main{padding:16px; padding-top:70px;} .mobile-menu-btn{display:flex;}}
+
+.stat-card{display:flex; flex-direction:column; gap:8px;}
+.stat-icon{width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:17px;}
+.stat-val{font-size:24px; font-weight:800;}
+.stat-label{font-size:12px; color:var(--txt-3);}
+
+table{width:100%; border-collapse:collapse; font-size:13px;}
+thead th{text-align:right; padding:11px 12px; color:var(--txt-3); font-weight:600; font-size:11.5px; border-bottom:1px solid var(--line); white-space:nowrap; position:sticky; top:0; background:var(--bg-2);}
+tbody td{padding:11px 12px; border-bottom:1px solid var(--line-soft); white-space:nowrap;}
+tbody tr:hover{background:rgba(255,255,255,.02);}
+tbody tr.row-orange td:first-child{box-shadow: inset 3px 0 0 var(--warn);}
+tbody tr.row-danger td:first-child{box-shadow: inset 3px 0 0 var(--danger);}
+.table-wrap{overflow-x:auto; border-radius:10px;}
+.mono{font-family:'Consolas',monospace; direction:ltr; text-align:right; unicode-bidi:plaintext;}
+
+.toolbar{display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:center;}
+.search-box{flex:1; min-width:200px;}
+.search-box input{width:100%; padding:10px 14px; border-radius:10px; background:var(--bg-3); border:1px solid var(--line); color:var(--txt-1); font-family:inherit; font-size:13.5px; outline:none;}
+.search-box input:focus{border-color:var(--accent);}
+select.filter-select{padding:10px 12px; border-radius:10px; background:var(--bg-3); border:1px solid var(--line); color:var(--txt-1); font-family:inherit; font-size:13px; outline:none;}
+
+.modal-overlay{display:none; position:fixed; inset:0; background:rgba(0,0,0,.72); z-index:100; align-items:flex-start; justify-content:center; overflow-y:auto; padding:40px 16px; backdrop-filter:blur(3px);}
+.modal-overlay.open{display:flex;}
+.modal{width:100%; max-width:560px; background:var(--bg-2); border:1px solid var(--line); border-radius:var(--radius); box-shadow:var(--shadow); margin-bottom:40px;}
+.modal.modal-lg{max-width:780px;}
+.modal-head{padding:18px 22px; border-bottom:1px solid var(--line); display:flex; align-items:center; justify-content:space-between;}
+.modal-head h3{font-size:15.5px; font-weight:700;}
+.modal-close{cursor:pointer; color:var(--txt-3); font-size:18px; background:none; border:none;}
+.modal-body{padding:22px; max-height:70vh; overflow-y:auto;}
+.modal-foot{padding:16px 22px; border-top:1px solid var(--line); display:flex; justify-content:flex-end; gap:10px;}
+
+.progress-bar{height:7px; border-radius:20px; background:var(--bg-3); overflow:hidden;}
+.progress-fill{height:100%; border-radius:20px; transition:.3s;}
+.toast-wrap{position:fixed; top:20px; left:20px; z-index:200; display:flex; flex-direction:column; gap:10px;}
+.toast{background:var(--bg-3); border:1px solid var(--line); border-radius:10px; padding:12px 16px; font-size:13px; box-shadow:var(--shadow); animation:slideIn .2s ease; min-width:220px;}
+.toast.ok{border-color:rgba(46,207,122,.4);}
+.toast.err{border-color:rgba(240,71,92,.4);}
+@keyframes slideIn{from{opacity:0; transform:translateX(-16px);} to{opacity:1; transform:translateX(0);}}
+.empty-state{text-align:center; padding:50px 20px; color:var(--txt-3);}
+.empty-state .ic{font-size:40px; margin-bottom:12px;}
+.tabs{display:flex; gap:6px; border-bottom:1px solid var(--line); margin-bottom:18px; overflow-x:auto;}
+.tab-btn{padding:10px 16px; font-size:13px; color:var(--txt-3); cursor:pointer; border-bottom:2px solid transparent; white-space:nowrap;}
+.tab-btn.active{color:var(--txt-1); border-color:var(--accent); font-weight:600;}
+#syncIndicator{display:flex; align-items:center; gap:6px; font-size:11px; color:var(--txt-3);}
+.dot{width:7px; height:7px; border-radius:50%; background:var(--ok);}
+.dot.syncing{background:var(--warn); animation:pulse 1s infinite;}
+.dot.error{background:var(--danger);}
+@keyframes pulse{0%,100%{opacity:1;} 50%{opacity:.3;}}
+.qty-in{color:var(--ok); font-weight:700;}
+.qty-out{color:var(--danger); font-weight:700;}
+.row-form{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+@media(max-width:560px){.row-form{grid-template-columns:1fr;}}
+.hidden{display:none !important;}
+.text-muted{color:var(--txt-3);}
+.icon-btn{width:32px; height:32px; border-radius:8px; border:1px solid var(--line); background:var(--bg-3); color:var(--txt-2); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; font-size:13px;}
+.icon-btn:hover{border-color:var(--accent); color:var(--accent);}
+.divider{height:1px; background:var(--line); margin:16px 0;}
+.radio-group{display:flex; gap:10px; margin-bottom:16px;}
+.radio-btn{flex:1; text-align:center; padding:10px; border-radius:10px; border:1px solid var(--line); background:var(--bg-3); cursor:pointer; font-size:13px; color:var(--txt-2);}
+.radio-btn.active{border-color:var(--accent); color:var(--txt-1); background:rgba(56,189,248,.1);}
+@media print{.sidebar, .topbar-actions, .toolbar, .no-print{display:none !important;} body{background:#fff; color:#000;} .main{padding:0;}}
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="login-card">
+    <div class="login-logo"><img src="icon-192.png" alt="Rostampour Logo"></div>
+    <div class="login-title">سامانه انبارداری قطعات صنعتی</div>
+    <div class="login-sub">ایستگاه توزیع آب پارس</div>
+    <div class="field"><label>نام کاربری</label><input type="text" id="loginUser" placeholder="نام کاربری خود را وارد کنید" autocomplete="off"></div>
+    <div class="field"><label>رمز عبور</label><input type="password" id="loginPass" placeholder="رمز عبور (برای مهمان خالی بگذارید)" autocomplete="off"></div>
+    <button class="btn btn-primary" onclick="doLogin()">ورود به سامانه</button>
+    <div class="login-err" id="loginErr"></div>
+    <button class="btn btn-ghost" style="width:100%; margin-top:10px;" onclick="loginAsGuest()">👁️ ورود به‌عنوان مهمان (فقط مشاهده)</button>
+    <button class="btn btn-ghost btn-sm install-btn" id="installBtnLogin" onclick="installApp()">⬇️ نصب برنامه روی دستگاه</button>
+    <div class="login-hint">دسترسی مشاهده‌گر: با دکمه بالا یا با وارد کردن هر نام کاربری دلخواه (بدون رمز عبور)، صرفاً جهت مشاهده و جستجوی لیست قطعات و موجودی.</div>
+    <div class="login-footer">طراحی و توسعه‌دهنده: محمدرضا رستم‌پور</div>
+  </div>
+</div>
+
+<div id="appScreen">
+<div class="toast-wrap" id="toastWrap"></div>
+<button class="mobile-menu-btn" id="mobileMenuBtn" onclick="toggleSidebar()">☰</button>
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-head">
+      <div class="logo" style="overflow:hidden;"><img src="icon-192.png" alt="Rostampour" style="width:100%; height:100%; object-fit:cover;"></div>
+      <div><div class="title">انبار قطعات پارس</div><div class="sub">Parts Warehouse Mgmt</div></div>
+    </div>
+    <nav class="nav" id="navList"></nav>
+    <div class="sidebar-foot">
+      <div class="user-chip">
+        <div class="av" id="userAv">👤</div>
+        <div class="info"><div class="name" id="userName">-</div><div class="role" id="userRole">-</div></div>
+      </div>
+      <div id="syncIndicator"><span class="dot" id="syncDot"></span><span id="syncText">همگام‌سازی شده</span></div>
+      <button class="btn btn-ghost btn-sm install-btn" id="installBtnSidebar" onclick="installApp()" style="width:100%; margin-top:8px;">⬇️ نصب برنامه</button>
+      <button class="btn btn-ghost btn-sm" style="width:100%; margin-top:10px;" onclick="doLogout()">خروج از سامانه</button>
+    </div>
+  </aside>
+  <main class="main" id="mainContent"></main>
+</div>
+<div class="app-footer">طراحی و توسعه‌دهنده: <b>محمدرضا رستم‌پور</b></div>
+</div>
+
+<div class="modal-overlay" id="modalRoot"></div>
+
+<script>
+/* =====================================================================
+   سامانه انبارداری قطعات صنعتی - ایستگاه توزیع آب پارس
+   Parts Warehouse Management System
+   Storage: jsonbin.io (Bin مستقل)
+===================================================================== */
+
+/* ---------------- PWA: INSTALL PROMPT & SERVICE WORKER ---------------- */
+let deferredInstallPrompt=null;
+window.addEventListener("beforeinstallprompt", (e)=>{
+  e.preventDefault();
+  deferredInstallPrompt=e;
+  document.querySelectorAll(".install-btn").forEach(b=>b.classList.add("show"));
+});
+window.addEventListener("appinstalled", ()=>{
+  deferredInstallPrompt=null;
+  document.querySelectorAll(".install-btn").forEach(b=>b.classList.remove("show"));
+  toast("برنامه با موفقیت روی دستگاه نصب شد");
+});
+async function installApp(){
+  if(!deferredInstallPrompt){
+    toast("برای نصب، از منوی مرورگر گزینه Add to Home Screen / Install App را انتخاب کنید");
+    return;
+  }
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt=null;
+  document.querySelectorAll(".install-btn").forEach(b=>b.classList.remove("show"));
+}
+if("serviceWorker" in navigator){
+  window.addEventListener("load", ()=>{
+    navigator.serviceWorker.register("sw.js").catch(err=>console.error("SW registration failed:", err));
+  });
+}
+
+const CONFIG = {
+  AUTOSAVE_DELAY: 1200,
+  LOW_STOCK_THRESHOLD: 5
+};
+
+/* ---------------- USERS ---------------- */
+const USERS = {
+  "rostampour": {password:"3530012319", role:"admin",  displayName:"مدیر سامانه"},
+  "station":    {password:"09170394054", role:"keeper", displayName:"انباردار"}
+};
+const ROLE_LABELS = {admin:"مدیر سامانه", keeper:"انباردار", guest:"بازدیدکننده (فقط مشاهده)"};
+
+/* ---------------- GROUPS (ثابت) ---------------- */
+const GROUPS = [
+  {id:"g_mech", name:"مکانیک"},
+  {id:"g_elec", name:"برق"},
+  {id:"g_line", name:"خط انتقال"}
+];
+
+/* ---------------- STATE ---------------- */
+let STATE = { currentUser:null, data:null, currentPage:"dashboard", saveTimer:null };
+
+/* ---------------- JALALI CALENDAR (self-contained, verified) ---------------- */
+function div(a,b){return Math.trunc(a/b);}
+function mod(a,b){return a - Math.trunc(a/b)*b;}
+function jalCal(jy){
+  const breaks=[-61,9,38,199,426,686,756,818,1111,1181,1210,1635,2060,2097,2192,2262,2324,2394,2456,3178];
+  let bl=breaks.length, gy=jy+621, leapJ=-14, jp=breaks[0], jm, jump=0, leap, n, i;
+  if(jy<jp||jy>=breaks[bl-1]) throw new Error("out of range");
+  for(i=1;i<bl;i++){ jm=breaks[i]; jump=jm-jp; if(jy<jm) break; leapJ+=div(jump,33)*8+div(mod(jump,33),4); jp=jm; }
+  n=jy-jp;
+  leapJ+=div(n,33)*8+div(mod(n,33)+3,4);
+  if(mod(jump,33)===4 && jump-n===4) leapJ++;
+  const leapG=div(gy,4)-div((div(gy,100)+1)*3,4)-150;
+  const march=20+leapJ-leapG;
+  if(jump-n<6) n=n-jump+div(jump+4,33)*33;
+  leap=mod(mod(n+1,33)-1,4);
+  if(leap===-1) leap=4;
+  return {leap:leap, gy:gy, march:march};
+}
+function g2d(gy,gm,gd){
+  let d=div((gy+div(gm-8,6)+100100)*1461,4)+div(153*mod(gm+9,12)+2,5)+gd-34840408;
+  d=d-div(div(gy+100100+div(gm-8,6),100)*3,4)+752;
+  return d;
+}
+function d2g(jdn){
+  let j=4*jdn+139361631;
+  j=j+div(div(4*jdn+183187720,146097)*3,4)*4-3908;
+  const i=div(mod(j,1461),4)*5+308;
+  const gd=div(mod(i,153),5)+1;
+  const gm=mod(div(i,153),12)+1;
+  const gy=div(j,1461)-100100+div(8-gm,6);
+  return [gy,gm,gd];
+}
+function gregorianToJalali(gy,gm,gd){
+  const jdn=g2d(gy,gm,gd);
+  const dgy=d2g(jdn)[0];
+  let jy=dgy-621;
+  const r=jalCal(jy);
+  const jdn1f=g2d(dgy,3,r.march);
+  let k=jdn-jdn1f, jm, jd;
+  if(k>=0){
+    if(k<=185){ jm=1+div(k,31); jd=mod(k,31)+1; return [jy,jm,jd]; }
+    k-=186;
+  } else {
+    jy-=1; k+=179;
+    if(r.leap===1) k+=1;
+  }
+  jm=7+div(k,30); jd=mod(k,30)+1;
+  return [jy,jm,jd];
+}
+function jalaliToGregorian(jy,jm,jd){
+  const r=jalCal(jy);
+  const jdn=g2d(r.gy,3,r.march)+(jm-1)*31-div(jm,7)*(jm-7)+jd-1;
+  return d2g(jdn);
+}
+const JMONTHS=["فروردین","اردیبهشت","خرداد","تیر","مرداد","شهریور","مهر","آبان","آذر","دی","بهمن","اسفند"];
+function todayJalali(){ const n=new Date(); return gregorianToJalali(n.getFullYear(), n.getMonth()+1, n.getDate()); }
+function todayJalaliStr(){ const [jy,jm,jd]=todayJalali(); return `${jy}/${String(jm).padStart(2,'0')}/${String(jd).padStart(2,'0')}`; }
+function isoToJalaliStr(iso){ const d=new Date(iso); const [jy,jm,jd]=gregorianToJalali(d.getFullYear(), d.getMonth()+1, d.getDate()); return `${jy}/${String(jm).padStart(2,'0')}/${String(jd).padStart(2,'0')}`; }
+function isoToJalaliParts(iso){ const d=new Date(iso); return gregorianToJalali(d.getFullYear(), d.getMonth()+1, d.getDate()); }
+function nowIso(){return new Date().toISOString();}
+
+/* ---------------- TOAST ---------------- */
+function toast(msg, type="ok"){
+  const wrap=document.getElementById("toastWrap");
+  const el=document.createElement("div");
+  el.className="toast "+(type==="ok"?"ok":"err");
+  el.textContent=msg;
+  wrap.appendChild(el);
+  setTimeout(()=>{el.remove();}, 3200);
+}
+
+/* ---------------- STORAGE (jsonbin.io + local offline cache) ----------------
+   نکته: کلید localStorage به‌صورت اختصاصی و غیرمشترک انتخاب شده تا با
+   پروژه‌های دیگر گیت‌هاب (CMM و ابزار Sizing) تداخلی نداشته باشد،
+   حتی اگر هر سه روی زیردامنه یکسان (username.github.io) میزبانی شوند.
+------------------------------------------------------------------------- */
+const LOCAL_STORAGE_KEY = "rostampour_warehouse_parts_v1_data";
+const LOCAL_PENDING_KEY = "rostampour_warehouse_parts_v1_pending";
+
+function emptyData(){
+  return { meta:{version:1, createdAt:nowIso()}, items:[], transactions:[], activityLog:[] };
+}
+function saveLocal(data){
+  try{ localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(data)); }
+  catch(e){ console.error("localStorage save failed:", e); }
+}
+function loadLocal(){
+  try{
+    const raw=localStorage.getItem(LOCAL_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  }catch(e){ console.error("localStorage read failed:", e); return null; }
+}
+function markPending(isPending){
+  try{ localStorage.setItem(LOCAL_PENDING_KEY, isPending?"1":"0"); }catch(e){}
+}
+function hasPendingChanges(){
+  try{ return localStorage.getItem(LOCAL_PENDING_KEY)==="1"; }catch(e){ return false; }
+}
+
+async function loadData(){
+  setSyncStatus("syncing");
+  const local=loadLocal();
+  if(!navigator.onLine){
+    STATE.data = local || emptyData();
+    setSyncStatus(local?"offline":"error");
+    if(local) toast("اتصال اینترنت برقرار نیست - داده‌های محلی ذخیره‌شده روی این دستگاه نمایش داده می‌شود","err");
+    return;
+  }
+  try{
+    const record = await window.WHFirebase.load();
+    STATE.data = record && Object.keys(record).length ? record : (local || emptyData());
+    saveLocal(STATE.data);
+    markPending(false);
+    setSyncStatus("ok");
+  }catch(e){
+    console.error(e);
+    STATE.data = local || emptyData();
+    setSyncStatus(local?"offline":"error");
+    toast(local?"عدم اتصال به سرور آنلاین - نسخه محلی ذخیره‌شده روی این دستگاه بارگذاری شد":"عدم اتصال به سرور ذخیره‌سازی","err");
+  }
+}
+function scheduleSave(){
+  if(STATE.currentUser && STATE.currentUser.role==="guest") return;
+  // ذخیره فوری و آفلاین روی همین دستگاه، بدون نیاز به اینترنت
+  saveLocal(STATE.data);
+  clearTimeout(STATE.saveTimer);
+  setSyncStatus("syncing");
+  STATE.saveTimer=setTimeout(saveData, CONFIG.AUTOSAVE_DELAY);
+}
+async function saveData(){
+  saveLocal(STATE.data);
+  if(!navigator.onLine){
+    markPending(true);
+    setSyncStatus("offline");
+    return;
+  }
+  try{
+    await window.WHFirebase.save(STATE.data);
+    markPending(false);
+    setSyncStatus("ok");
+  }catch(e){
+    console.error(e);
+    markPending(true);
+    setSyncStatus("offline");
+    toast("ذخیره آنلاین ناموفق بود؛ تغییرات به‌صورت محلی روی این دستگاه ذخیره شد و با اتصال بعدی همگام می‌شود","err");
+  }
+}
+async function trySyncPending(){
+  if(!STATE.currentUser || STATE.currentUser.role==="guest") return;
+  if(!navigator.onLine || !hasPendingChanges()) return;
+  await saveData();
+  if(!hasPendingChanges()) toast("تغییرات آفلاین با موفقیت همگام‌سازی شد");
+}
+window.addEventListener("online", trySyncPending);
+window.addEventListener("offline", ()=>{ setSyncStatus("offline"); });
+
+function setSyncStatus(s){
+  const dot=document.getElementById("syncDot"); const txt=document.getElementById("syncText");
+  if(!dot) return;
+  dot.className="dot"+(s==="syncing"?" syncing":s==="error"?" error":s==="offline"?" error":"");
+  const labels={syncing:"در حال ذخیره...", error:"خطا در اتصال", offline:"حالت آفلاین (ذخیره محلی)", ok:"همگام‌سازی شده"};
+  txt.textContent = labels[s] || labels.ok;
+}
+
+/* ---------------- ACTIVITY LOG ---------------- */
+function logActivity(action, details){
+  STATE.data.activityLog.unshift({id:genId("log"), user:STATE.currentUser.username, action, details, date:nowIso()});
+  if(STATE.data.activityLog.length>500) STATE.data.activityLog.length=500;
+}
+function genId(prefix){ return prefix+"_"+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+
+/* ---------------- AUTH ---------------- */
+function loginAsGuest(){
+  document.getElementById("loginUser").value="مهمان";
+  document.getElementById("loginPass").value="";
+  doLogin();
+}
+let whSsoHandled = false;
+async function enterWarehouseApp(role, username, displayName){
+  STATE.currentUser={username, role, displayName};
+  document.getElementById("loginScreen").style.display="none";
+  document.getElementById("appScreen").style.display="block";
+  document.getElementById("userName").textContent=displayName;
+  document.getElementById("userRole").textContent=ROLE_LABELS[role];
+  document.getElementById("userAv").textContent = role==="admin"?"👑":role==="keeper"?"🧑‍🔧":"👁️";
+  await loadData();
+  buildNav();
+  const first=NAV_ITEMS.find(n=>n.roles.includes(role));
+  renderPage(first?first.id:"items");
+}
+async function doLogin(){
+  const u=document.getElementById("loginUser").value.trim();
+  const p=document.getElementById("loginPass").value;
+  const errEl=document.getElementById("loginErr");
+  errEl.textContent="";
+  if(!u){ errEl.textContent="نام کاربری را وارد کنید"; return; }
+  const known=USERS[u];
+  if(known){
+    const email = u==="rostampour" ? "rostampour@rostampour-system.local" : "station@rostampour-system.local";
+    try{
+      await window.WHFirebase.signInWithEmailAndPassword(email, p);
+      // enterWarehouseApp triggered by wh-auth-state listener
+    }catch(e){
+      console.error(e);
+      errEl.textContent="رمز عبور نادرست است";
+    }
+    return;
+  }
+  try{ if(!window.WHFirebase.getCurrentUser()) await window.WHFirebase.signInAnonymously(); }catch(e){ /* ignore */ }
+  await enterWarehouseApp("guest", u, u);
+}
+window.addEventListener("wh-auth-state", (ev)=>{
+  const { user, role } = ev.detail;
+  if(user && role && !whSsoHandled){
+    whSsoHandled = true;
+    const username = role==="admin" ? "rostampour" : "station";
+    const displayName = USERS[username].displayName;
+    enterWarehouseApp(role, username, displayName);
+  } else if(!user){
+    whSsoHandled = false;
+  }
+});
+function doLogout(){
+  STATE.currentUser=null;
+  document.getElementById("appScreen").style.display="none";
+  document.getElementById("loginScreen").style.display="flex";
+  document.getElementById("loginUser").value="";
+  document.getElementById("loginPass").value="";
+}
+
+/* ---------------- NAV ---------------- */
+const NAV_ITEMS=[
+  {id:"dashboard", label:"داشبورد", icon:"📊", roles:["admin"]},
+  {id:"items", label:"لیست قطعات و موجودی", icon:"🧱", roles:["admin","keeper","guest"]},
+  {id:"transactions", label:"ثبت ورود / خروج", icon:"🔄", roles:["admin","keeper"]},
+  {id:"kardex", label:"کاردکس قطعه", icon:"📒", roles:["admin","keeper"]},
+  {id:"reports", label:"گزارش‌ها", icon:"📑", roles:["admin","keeper"]},
+  {id:"activity", label:"لاگ فعالیت‌ها", icon:"🕓", roles:["admin"]}
+];
+function buildNav(){
+  const nav=document.getElementById("navList");
+  nav.innerHTML="";
+  NAV_ITEMS.filter(n=>n.roles.includes(STATE.currentUser.role)).forEach(n=>{
+    const el=document.createElement("div");
+    el.className="nav-item"+(STATE.currentPage===n.id?" active":"");
+    el.dataset.page=n.id;
+    el.innerHTML=`<span class="ic">${n.icon}</span><span>${n.label}</span>`;
+    el.onclick=()=>{ renderPage(n.id); closeSidebar(); };
+    nav.appendChild(el);
+  });
+}
+function setActiveNav(page){ document.querySelectorAll(".nav-item").forEach(el=>el.classList.toggle("active", el.dataset.page===page)); }
+
+/* ---------------- MOBILE SIDEBAR TOGGLE ---------------- */
+function toggleSidebar(){
+  document.getElementById("sidebar").classList.toggle("open");
+  document.getElementById("sidebarOverlay").classList.toggle("show");
+}
+function closeSidebar(){
+  document.getElementById("sidebar").classList.remove("open");
+  document.getElementById("sidebarOverlay").classList.remove("show");
+}
+
+/* ---------------- ROUTER ---------------- */
+function renderPage(page){
+  const allowed=NAV_ITEMS.find(n=>n.id===page);
+  if(allowed && !allowed.roles.includes(STATE.currentUser.role)) page="items";
+  STATE.currentPage=page;
+  setActiveNav(page);
+  const main=document.getElementById("mainContent");
+  const canWrite = STATE.currentUser.role==="admin";
+  const canTransact = STATE.currentUser.role==="admin" || STATE.currentUser.role==="keeper";
+  switch(page){
+    case "dashboard": renderDashboard(main); break;
+    case "items": renderItems(main, canWrite); break;
+    case "transactions": renderTransactions(main, canTransact); break;
+    case "kardex": renderKardex(main); break;
+    case "reports": renderReports(main); break;
+    case "activity": renderActivity(main); break;
+    default: main.innerHTML="<div class='card'>صفحه یافت نشد</div>";
+  }
+}
+
+/* ---------------- HELPERS ---------------- */
+function fmtNum(n){ return Number(n||0).toLocaleString('en-US'); }
+function getItem(id){ return STATE.data.items.find(i=>i.id===id); }
+function groupName(id){ const g=GROUPS.find(x=>x.id===id); return g?g.name:"—"; }
+function stockStatus(item){
+  if(item.currentStock<=0) return {label:"اتمام موجودی", cls:"badge-danger", row:"row-danger"};
+  if(item.currentStock<CONFIG.LOW_STOCK_THRESHOLD) return {label:"موجودی کم (زیر "+CONFIG.LOW_STOCK_THRESHOLD+")", cls:"badge-warn", row:"row-orange"};
+  if(item.maxStock && item.currentStock>item.maxStock) return {label:"بیش از حداکثر", cls:"badge-muted", row:""};
+  return {label:"نرمال", cls:"badge-ok", row:""};
+}
+function escapeHtml(s){ return String(s??"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+/* ---------------- MODAL SYSTEM ---------------- */
+function openModal(html, size=""){
+  const root=document.getElementById("modalRoot");
+  root.innerHTML=`<div class="modal ${size}">${html}</div>`;
+  root.classList.add("open");
+}
+function closeModal(){ document.getElementById("modalRoot").classList.remove("open"); document.getElementById("modalRoot").innerHTML=""; }
+document.getElementById("modalRoot").addEventListener("click", (e)=>{ if(e.target.id==="modalRoot") closeModal(); });
+
+/* ================= DASHBOARD ================= */
+function renderDashboard(main){
+  const items=STATE.data.items;
+  const lowStock=items.filter(i=>i.currentStock>0 && i.currentStock<CONFIG.LOW_STOCK_THRESHOLD);
+  const zeroItems=items.filter(i=>i.currentStock<=0);
+  const totalUnits=items.reduce((s,i)=>s+i.currentStock,0);
+  const needSupply=items.filter(i=>i.currentStock<CONFIG.LOW_STOCK_THRESHOLD)
+    .map(i=>({...i, needed: Math.max(0,(i.maxStock||0)-i.currentStock)}))
+    .sort((a,b)=>a.currentStock-b.currentStock);
+
+  main.innerHTML=`
+    <div class="topbar">
+      <div><div class="page-title">داشبورد مدیریتی انبار قطعات</div><div class="page-sub">امروز: ${todayJalaliStr()} &nbsp;|&nbsp; خوش آمدید، ${STATE.currentUser.displayName}</div></div>
+    </div>
+    <div class="grid grid-4" style="margin-bottom:18px;">
+      <div class="card stat-card"><div class="stat-icon" style="background:rgba(56,189,248,.15);">🧱</div><div class="stat-val">${fmtNum(items.length)}</div><div class="stat-label">تعداد کل قطعات ثبت‌شده</div></div>
+      <div class="card stat-card"><div class="stat-icon" style="background:rgba(245,165,36,.18);">⚠️</div><div class="stat-val" style="color:var(--warn)">${fmtNum(lowStock.length)}</div><div class="stat-label">قطعات با موجودی کمتر از ${CONFIG.LOW_STOCK_THRESHOLD}</div></div>
+      <div class="card stat-card"><div class="stat-icon" style="background:rgba(240,71,92,.15);">⛔</div><div class="stat-val" style="color:var(--danger)">${fmtNum(zeroItems.length)}</div><div class="stat-label">قطعات دارای موجودی صفر</div></div>
+      <div class="card stat-card"><div class="stat-icon" style="background:rgba(46,207,122,.15);">📦</div><div class="stat-val">${fmtNum(totalUnits)}</div><div class="stat-label">مجموع تعداد کل موجودی انبار</div></div>
+    </div>
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+        <div style="font-weight:700;">گزارش لحظه‌ای کسری موجودی و نیاز به تامین</div>
+        <span class="badge badge-warn">${needSupply.length} قلم</span>
+      </div>
+      ${needSupply.length? `
+      <div class="table-wrap"><table>
+        <thead><tr><th>نام قطعه</th><th>گروه</th><th>موجودی فعلی</th><th>تعداد ماکزیمم</th><th>کسری (نیاز به تامین)</th><th>وضعیت</th></tr></thead>
+        <tbody>
+          ${needSupply.map(i=>{ const st=stockStatus(i); return `
+            <tr class="${st.row}">
+              <td>${escapeHtml(i.name)}</td>
+              <td>${groupName(i.groupId)}</td>
+              <td>${fmtNum(i.currentStock)}</td>
+              <td>${i.maxStock?fmtNum(i.maxStock):"—"}</td>
+              <td style="font-weight:700; color:var(--warn);">${i.maxStock?fmtNum(i.needed):"—"}</td>
+              <td><span class="badge ${st.cls}">${st.label}</span></td>
+            </tr>`;}).join("")}
+        </tbody>
+      </table></div>` : `<div class="empty-state"><div class="ic">✅</div>همه قطعات موجودی کافی دارند</div>`}
+    </div>
+  `;
+}
+
+/* ================= ITEMS PAGE (لیست قطعات و موجودی) ================= */
+let itemsFilter={search:"", group:"", status:""};
+function renderItems(main, canWrite){
+  main.innerHTML=`
+    <div class="topbar">
+      <div><div class="page-title">لیست قطعات و موجودی انبار</div><div class="page-sub">${fmtNum(STATE.data.items.length)} قطعه ثبت‌شده</div></div>
+      <div class="topbar-actions"><button class="btn btn-ghost btn-sm" onclick="exportItemsExcel()">⬇️ خروجی اکسل</button></div>
+    </div>
+    <div class="toolbar">
+      <div class="search-box"><input type="text" id="itemSearch" placeholder="جستجو بر اساس نام یا مشخصات فنی قطعه..." oninput="itemsFilter.search=this.value; renderItemsTable()"></div>
+      <select class="filter-select" onchange="itemsFilter.group=this.value; renderItemsTable()">
+        <option value="">همه گروه‌ها</option>
+        ${GROUPS.map(g=>`<option value="${g.id}">${g.name}</option>`).join("")}
+      </select>
+      <select class="filter-select" onchange="itemsFilter.status=this.value; renderItemsTable()">
+        <option value="">همه وضعیت‌ها</option>
+        <option value="low">موجودی کم (زیر ${CONFIG.LOW_STOCK_THRESHOLD})</option>
+        <option value="zero">اتمام موجودی</option>
+        <option value="normal">نرمال</option>
+      </select>
+    </div>
+    <div class="card"><div id="itemsTableWrap" class="table-wrap"></div></div>
+  `;
+  renderItemsTable(canWrite);
+}
+function renderItemsTable(canWrite){
+  canWrite = canWrite ?? (STATE.currentUser.role==="admin");
+  let list=STATE.data.items.filter(i=>{
+    const s=itemsFilter.search.toLowerCase();
+    const matchSearch=!s || i.name.toLowerCase().includes(s) || (i.specs||"").toLowerCase().includes(s);
+    const matchGroup=!itemsFilter.group || i.groupId===itemsFilter.group;
+    let matchStatus=true;
+    if(itemsFilter.status==="low") matchStatus=i.currentStock>0 && i.currentStock<CONFIG.LOW_STOCK_THRESHOLD;
+    if(itemsFilter.status==="zero") matchStatus=i.currentStock<=0;
+    if(itemsFilter.status==="normal") matchStatus=i.currentStock>=CONFIG.LOW_STOCK_THRESHOLD;
+    return matchSearch && matchGroup && matchStatus;
+  });
+  const wrap=document.getElementById("itemsTableWrap");
+  if(!list.length){ wrap.innerHTML=`<div class="empty-state"><div class="ic">📭</div>هیچ قطعه‌ای یافت نشد</div>`; return; }
+  wrap.innerHTML=`
+    <table>
+      <thead><tr><th>نام قطعه</th><th>مشخصات فنی</th><th>گروه</th><th>موجودی فعلی</th><th>تعداد ماکزیمم</th><th>توضیحات</th><th>وضعیت</th>${canWrite?"<th></th>":""}</tr></thead>
+      <tbody>
+        ${list.map(i=>{
+          const st=stockStatus(i);
+          const pct = i.maxStock ? Math.min(100, (i.currentStock/i.maxStock)*100) : 100;
+          return `
+          <tr class="${st.row}">
+            <td>${escapeHtml(i.name)}</td>
+            <td class="text-muted">${escapeHtml(i.specs||"—")}</td>
+            <td>${groupName(i.groupId)}</td>
+            <td>
+              <div style="font-weight:700;">${fmtNum(i.currentStock)}</div>
+              <div class="progress-bar" style="width:90px; margin-top:4px;"><div class="progress-fill" style="width:${pct}%; background:${st.cls==='badge-danger'?'var(--danger)':st.cls==='badge-warn'?'var(--warn)':'var(--ok)'}"></div></div>
+            </td>
+            <td>${i.maxStock?fmtNum(i.maxStock):"—"}</td>
+            <td class="text-muted">${escapeHtml(i.notes||"—")}</td>
+            <td><span class="badge ${st.cls}">${st.label}</span></td>
+            ${canWrite?`<td><div style="display:flex; gap:6px;">
+                <button class="icon-btn" title="کاردکس" onclick="openKardexFor('${i.id}')">📒</button>
+                <button class="icon-btn" title="ویرایش مشخصات" onclick="openItemEditModal('${i.id}')">✎</button>
+                <button class="icon-btn" title="حذف" onclick="deleteItem('${i.id}')">🗑</button>
+              </div></td>`:""}
+          </tr>`;
+        }).join("")}
+      </tbody>
+    </table>
+  `;
+}
+function openItemEditModal(itemId){
+  const item=getItem(itemId);
+  openModal(`
+    <div class="modal-head"><h3>ویرایش مشخصات قطعه</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">
+      <div class="field"><label>نام قطعه</label><input id="e_name" value="${escapeHtml(item.name)}"></div>
+      <div class="field"><label>مشخصات فنی</label><input id="e_specs" value="${escapeHtml(item.specs||"")}"></div>
+      <div class="row-form">
+        <div class="field"><label>گروه‌بندی</label><select id="e_group">${GROUPS.map(g=>`<option value="${g.id}" ${item.groupId===g.id?"selected":""}>${g.name}</option>`).join("")}</select></div>
+        <div class="field"><label>تعداد ماکزیمم</label><input type="number" id="e_max" value="${item.maxStock||""}"></div>
+      </div>
+      <div class="field"><label>توضیحات</label><input id="e_notes" value="${escapeHtml(item.notes||"")}"></div>
+      <div class="text-muted" style="font-size:12px;">توجه: تغییر مقدار موجودی فقط از طریق ثبت ورود/خروج قطعه انجام می‌شود تا سابقه کاردکس دقیق بماند.</div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">انصراف</button><button class="btn btn-primary" onclick="saveItemEdit('${item.id}')">ذخیره تغییرات</button></div>
+  `);
+}
+function saveItemEdit(itemId){
+  const item=getItem(itemId);
+  const name=document.getElementById("e_name").value.trim();
+  if(!name){ toast("نام قطعه الزامی است","err"); return; }
+  item.name=name;
+  item.specs=document.getElementById("e_specs").value.trim();
+  item.groupId=document.getElementById("e_group").value;
+  item.maxStock=document.getElementById("e_max").value?Number(document.getElementById("e_max").value):null;
+  item.notes=document.getElementById("e_notes").value.trim();
+  logActivity("ویرایش مشخصات قطعه", name);
+  closeModal(); scheduleSave(); renderItemsTable(); toast("مشخصات قطعه ذخیره شد");
+}
+function deleteItem(itemId){
+  const item=getItem(itemId);
+  if(!confirm(`آیا از حذف قطعه «${item.name}» اطمینان دارید؟ سوابق تراکنش‌های آن باقی می‌ماند.`)) return;
+  STATE.data.items=STATE.data.items.filter(i=>i.id!==itemId);
+  logActivity("حذف قطعه", `${item.name}`);
+  scheduleSave(); renderItemsTable(); toast("قطعه حذف شد");
+}
+function exportItemsExcel(){
+  const rows=STATE.data.items.map(i=>({
+    "نام قطعه":i.name, "مشخصات فنی":i.specs||"", "گروه":groupName(i.groupId),
+    "موجودی فعلی":i.currentStock, "تعداد ماکزیمم":i.maxStock||"", "توضیحات":i.notes||""
+  }));
+  const ws=XLSX.utils.json_to_sheet(rows);
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "لیست قطعات");
+  XLSX.writeFile(wb, `لیست_قطعات_انبار_${todayJalaliStr().replace(/\//g,"-")}.xlsx`);
+}
+
+/* ================= TRANSACTIONS PAGE (ثبت ورود / خروج) ================= */
+function renderTransactions(main, canWrite){
+  const txs=[...STATE.data.transactions].sort((a,b)=>new Date(b.date)-new Date(a.date));
+  main.innerHTML=`
+    <div class="topbar">
+      <div><div class="page-title">ثبت ورود و خروج قطعه</div><div class="page-sub">ثبت ورودی قطعه جدید یا موجود، و ثبت خروج از انبار</div></div>
+      <div class="topbar-actions">
+        ${canWrite?`
+          <button class="btn btn-ghost btn-sm" onclick="openEntryModal('existing')">📥 افزایش موجودی قطعه موجود</button>
+          <button class="btn btn-ghost btn-sm" onclick="openEntryModal('new')">🆕 ثبت ورودی قطعه جدید</button>
+          <button class="btn btn-primary btn-sm" onclick="openExitModal()">📤 ثبت خروج قطعه</button>
+        `:""}
+      </div>
+    </div>
+    <div class="card"><div class="table-wrap">
+      ${txs.length? `
+      <table>
+        <thead><tr><th>تاریخ</th><th>نوع</th><th>نام قطعه</th><th>گروه</th><th>مقدار</th><th>محل مصرف</th><th>نام خارج‌کننده</th><th>ثبت‌کننده</th><th>توضیحات</th></tr></thead>
+        <tbody>
+          ${txs.map(t=>{
+            const item=getItem(t.itemId);
+            return `<tr>
+              <td>${isoToJalaliStr(t.date)}</td>
+              <td>${t.type==="in"?'<span class="badge badge-ok">ورودی</span>':'<span class="badge badge-danger">خروجی</span>'}</td>
+              <td>${item?escapeHtml(item.name):"(قطعه حذف شده)"}</td>
+              <td>${item?groupName(item.groupId):"—"}</td>
+              <td class="${t.type==='in'?'qty-in':'qty-out'}">${t.type==='in'?'+':'−'}${fmtNum(t.qty)}</td>
+              <td>${escapeHtml(t.location||"—")}</td>
+              <td>${escapeHtml(t.takerName||"—")}</td>
+              <td>${escapeHtml(t.user)}</td>
+              <td>${escapeHtml(t.description||"—")}</td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>` : `<div class="empty-state"><div class="ic">🔄</div>هنوز تراکنشی ثبت نشده است</div>`}
+    </div></div>
+  `;
+}
+function openEntryModal(mode){
+  if(mode==="new"){
+    openModal(`
+      <div class="modal-head"><h3>ثبت ورودی قطعه جدید</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="modal-body">
+        <div class="field"><label>نام قطعه</label><input id="n_name" placeholder="نام قطعه را وارد کنید"></div>
+        <div class="field"><label>مشخصات فنی</label><input id="n_specs" placeholder="مدل، سایز، برند و ..."></div>
+        <div class="field"><label>گروه‌بندی</label><select id="n_group">${GROUPS.map(g=>`<option value="${g.id}">${g.name}</option>`).join("")}</select></div>
+        <div class="row-form">
+          <div class="field"><label>تعداد (موجودی ورودی)</label><input type="number" id="n_qty" min="1" value="1"></div>
+          <div class="field"><label>تعداد ماکزیمم</label><input type="number" id="n_max" min="0" placeholder="ظرفیت مرجع انبار"></div>
+        </div>
+        <div class="field"><label>توضیحات</label><input id="n_notes" placeholder="اختیاری"></div>
+      </div>
+      <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">انصراف</button><button class="btn btn-primary" onclick="saveNewEntry()">ثبت ورودی</button></div>
+    `);
+  } else {
+    const options=STATE.data.items.map(i=>`<option value="${i.id}">${i.name}${i.specs?" - "+i.specs:""} (موجودی: ${fmtNum(i.currentStock)})</option>`).join("");
+    openModal(`
+      <div class="modal-head"><h3>افزایش موجودی قطعه موجود</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+      <div class="modal-body">
+        <div class="field"><label>انتخاب قطعه</label><select id="ex_item">${options||"<option>ابتدا یک قطعه جدید ثبت کنید</option>"}</select></div>
+        <div class="field"><label>تعداد ورودی</label><input type="number" id="ex_qty" min="1" value="1"></div>
+        <div class="field"><label>توضیحات</label><input id="ex_notes" placeholder="اختیاری"></div>
+      </div>
+      <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">انصراف</button><button class="btn btn-primary" onclick="saveExistingEntry()">ثبت ورودی</button></div>
+    `);
+  }
+}
+function saveNewEntry(){
+  const name=document.getElementById("n_name").value.trim();
+  const qty=Number(document.getElementById("n_qty").value);
+  if(!name){ toast("نام قطعه الزامی است","err"); return; }
+  if(!qty||qty<=0){ toast("تعداد باید بزرگتر از صفر باشد","err"); return; }
+  const item={
+    id:genId("item"), name,
+    specs:document.getElementById("n_specs").value.trim(),
+    groupId:document.getElementById("n_group").value,
+    currentStock:qty,
+    maxStock:document.getElementById("n_max").value?Number(document.getElementById("n_max").value):null,
+    notes:document.getElementById("n_notes").value.trim(),
+    createdAt:nowIso()
+  };
+  STATE.data.items.push(item);
+  STATE.data.transactions.push({id:genId("tx"), itemId:item.id, type:"in", qty, description:item.notes, user:STATE.currentUser.username, date:nowIso()});
+  logActivity("ثبت ورودی قطعه جدید", `${name} - ${fmtNum(qty)} عدد`);
+  closeModal(); scheduleSave(); renderPage("transactions"); toast("قطعه جدید و ورودی آن با موفقیت ثبت شد");
+}
+function saveExistingEntry(){
+  const itemId=document.getElementById("ex_item").value;
+  const qty=Number(document.getElementById("ex_qty").value);
+  if(!itemId){ toast("ابتدا یک قطعه ثبت کنید","err"); return; }
+  if(!qty||qty<=0){ toast("تعداد باید بزرگتر از صفر باشد","err"); return; }
+  const item=getItem(itemId);
+  const description=document.getElementById("ex_notes").value.trim();
+  item.currentStock+=qty;
+  STATE.data.transactions.push({id:genId("tx"), itemId, type:"in", qty, description, user:STATE.currentUser.username, date:nowIso()});
+  logActivity("ثبت ورودی قطعه", `${item.name} - ${fmtNum(qty)} عدد`);
+  closeModal(); scheduleSave(); renderPage("transactions"); toast("ورودی قطعه با موفقیت ثبت شد");
+}
+function openExitModal(){
+  const options=STATE.data.items.map(i=>`<option value="${i.id}">${i.name}${i.specs?" - "+i.specs:""} (موجودی: ${fmtNum(i.currentStock)})</option>`).join("");
+  openModal(`
+    <div class="modal-head"><h3>ثبت خروج قطعه</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+    <div class="modal-body">
+      <div class="field"><label>انتخاب قطعه</label><select id="out_item">${options||"<option>هیچ قطعه‌ای ثبت نشده</option>"}</select></div>
+      <div class="field"><label>تعداد</label><input type="number" id="out_qty" min="1" value="1"></div>
+      <div class="field"><label>محل مصرف</label><input id="out_loc" placeholder="مثلاً: ایستگاه پمپاژ نوروزه"></div>
+      <div class="field"><label>نام خارج‌کننده</label><input id="out_taker" placeholder="نام فرد دریافت‌کننده قطعه"></div>
+      <div class="field"><label>توضیحات</label><input id="out_notes" placeholder="اختیاری"></div>
+    </div>
+    <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">انصراف</button><button class="btn btn-primary" onclick="saveExit()">ثبت خروج</button></div>
+  `);
+}
+function saveExit(){
+  const itemId=document.getElementById("out_item").value;
+  const qty=Number(document.getElementById("out_qty").value);
+  const taker=document.getElementById("out_taker").value.trim();
+  if(!itemId){ toast("ابتدا یک قطعه ثبت کنید","err"); return; }
+  if(!qty||qty<=0){ toast("تعداد باید بزرگتر از صفر باشد","err"); return; }
+  if(!taker){ toast("نام خارج‌کننده الزامی است","err"); return; }
+  const item=getItem(itemId);
+  if(qty>item.currentStock){
+    if(!confirm(`موجودی فعلی (${fmtNum(item.currentStock)}) کمتر از مقدار درخواستی است. آیا ادامه می‌دهید؟`)) return;
+  }
+  STATE.data.transactions.push({
+    id:genId("tx"), itemId, type:"out", qty,
+    location:document.getElementById("out_loc").value.trim(),
+    takerName:taker,
+    description:document.getElementById("out_notes").value.trim(),
+    user:STATE.currentUser.username, date:nowIso()
+  });
+  item.currentStock-=qty;
+  logActivity("ثبت خروج قطعه", `${item.name} - ${fmtNum(qty)} عدد - خارج‌کننده: ${taker}`);
+  closeModal(); scheduleSave(); renderPage("transactions"); toast("خروج قطعه با موفقیت ثبت شد");
+}
+
+/* ================= KARDEX PAGE ================= */
+function renderKardex(main, preselectId){
+  const opts=STATE.data.items.map(i=>`<option value="${i.id}" ${preselectId===i.id?"selected":""}>${escapeHtml(i.name)}${i.specs?" - "+escapeHtml(i.specs):""}</option>`).join("");
+  main.innerHTML=`
+    <div class="topbar">
+      <div><div class="page-title">کاردکس قطعه</div><div class="page-sub">تاریخچه کامل گردش هر قطعه</div></div>
+      <div class="topbar-actions"><button class="btn btn-ghost btn-sm no-print" onclick="window.print()">🖨️ چاپ</button></div>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+      <div class="field" style="margin-bottom:0;"><label>انتخاب قطعه</label>
+        <select id="kardexItemSelect" onchange="renderKardexBody(this.value)"><option value="">— انتخاب کنید —</option>${opts}</select>
+      </div>
+    </div>
+    <div id="kardexBodyWrap"></div>
+  `;
+  if(preselectId) renderKardexBody(preselectId);
+}
+function openKardexFor(itemId){ renderPage("kardex"); setTimeout(()=>renderKardex(document.getElementById("mainContent"), itemId),0); }
+function renderKardexBody(itemId){
+  const wrap=document.getElementById("kardexBodyWrap");
+  if(!itemId){ wrap.innerHTML=""; return; }
+  const item=getItem(itemId);
+  const txs=STATE.data.transactions.filter(t=>t.itemId===itemId).sort((a,b)=>new Date(a.date)-new Date(b.date));
+  let running=0;
+  const rows=txs.map(t=>{ running += (t.type==="in"?t.qty:-t.qty); return {...t, balance:running}; }).reverse();
+  wrap.innerHTML=`
+    <div class="grid grid-3" style="margin-bottom:16px;">
+      <div class="card stat-card"><div class="stat-label">گروه</div><div class="stat-val" style="font-size:16px;">${groupName(item.groupId)}</div></div>
+      <div class="card stat-card"><div class="stat-label">موجودی فعلی</div><div class="stat-val">${fmtNum(item.currentStock)}</div></div>
+      <div class="card stat-card"><div class="stat-label">تعداد کل تراکنش‌ها</div><div class="stat-val">${fmtNum(txs.length)}</div></div>
+    </div>
+    <div class="card"><div class="table-wrap">
+      ${rows.length? `
+      <table>
+        <thead><tr><th>تاریخ</th><th>شرح</th><th>ورودی</th><th>خروجی</th><th>موجودی تجمیعی</th><th>محل مصرف / خارج‌کننده</th></tr></thead>
+        <tbody>
+          ${rows.map(t=>`<tr>
+            <td>${isoToJalaliStr(t.date)}</td>
+            <td>${t.type==='in'?'ورود قطعه':'خروج قطعه'}${t.description?' - '+escapeHtml(t.description):''}</td>
+            <td class="qty-in">${t.type==='in'?fmtNum(t.qty):"—"}</td>
+            <td class="qty-out">${t.type==='out'?fmtNum(t.qty):"—"}</td>
+            <td style="font-weight:700;">${fmtNum(t.balance)}</td>
+            <td>${t.type==='out'?(escapeHtml(t.location||"—")+" / "+escapeHtml(t.takerName||"—")):"—"}</td>
+          </tr>`).join("")}
+        </tbody>
+      </table>` : `<div class="empty-state"><div class="ic">📒</div>هنوز تراکنشی برای این قطعه ثبت نشده است</div>`}
+    </div></div>
+  `;
+}
+
+/* ================= REPORTS PAGE ================= */
+function renderReports(main){
+  const now=todayJalali();
+  main.innerHTML=`
+    <div class="topbar"><div><div class="page-title">گزارش‌ها</div><div class="page-sub">گزارش ماهانه گردش قطعات و گزارش کسری موجودی</div></div></div>
+    <div class="card" style="margin-bottom:16px;">
+      <div style="font-weight:700; margin-bottom:14px;">گزارش ماهانه ورود و خروج قطعات</div>
+      <div class="toolbar">
+        <select class="filter-select" id="rep_year">${[now[0]-1,now[0],now[0]+1].map(y=>`<option value="${y}" ${y===now[0]?"selected":""}>${y}</option>`).join("")}</select>
+        <select class="filter-select" id="rep_month">${JMONTHS.map((m,idx)=>`<option value="${idx+1}" ${idx+1===now[1]?"selected":""}>${m}</option>`).join("")}</select>
+        <button class="btn btn-ghost btn-sm" onclick="exportMonthlyExcel()">⬇️ خروجی اکسل</button>
+        <button class="btn btn-primary btn-sm" onclick="exportMonthlyPdf()">⬇️ خروجی PDF</button>
+      </div>
+      <div id="monthlyPreviewWrap" class="table-wrap"></div>
+    </div>
+    <div class="card">
+      <div style="font-weight:700; margin-bottom:14px;">گزارش لحظه‌ای کسری موجودی و نیاز به تامین</div>
+      <button class="btn btn-ghost btn-sm" style="margin-bottom:14px;" onclick="exportShortagePdf()">⬇️ خروجی PDF</button>
+      <div id="shortagePreviewWrap" class="table-wrap"></div>
+    </div>
+  `;
+  document.getElementById("rep_year").onchange=renderMonthlyPreview;
+  document.getElementById("rep_month").onchange=renderMonthlyPreview;
+  renderMonthlyPreview();
+  renderShortagePreview();
+}
+function getMonthlyTx(){
+  const jy=Number(document.getElementById("rep_year").value);
+  const jm=Number(document.getElementById("rep_month").value);
+  return STATE.data.transactions.filter(t=>{
+    const [ty,tm]=isoToJalaliParts(t.date);
+    return ty===jy && tm===jm;
+  }).sort((a,b)=>new Date(a.date)-new Date(b.date));
+}
+function renderMonthlyPreview(){
+  const txs=getMonthlyTx();
+  const wrap=document.getElementById("monthlyPreviewWrap");
+  if(!txs.length){ wrap.innerHTML=`<div class="empty-state"><div class="ic">📑</div>تراکنشی در این بازه ثبت نشده است</div>`; return; }
+  wrap.innerHTML=`
+    <table>
+      <thead><tr><th>تاریخ</th><th>نوع</th><th>نام قطعه</th><th>مشخصات فنی</th><th>گروه</th><th>مقدار</th><th>محل مصرف</th><th>خارج‌کننده</th></tr></thead>
+      <tbody>
+        ${txs.map(t=>{ const item=getItem(t.itemId); return `<tr>
+          <td>${isoToJalaliStr(t.date)}</td>
+          <td>${t.type==="in"?'<span class="badge badge-ok">ورودی</span>':'<span class="badge badge-danger">خروجی</span>'}</td>
+          <td>${item?escapeHtml(item.name):"—"}</td>
+          <td class="text-muted">${item?escapeHtml(item.specs||"—"):"—"}</td>
+          <td>${item?groupName(item.groupId):"—"}</td>
+          <td class="${t.type==='in'?'qty-in':'qty-out'}">${t.type==='in'?'+':'−'}${fmtNum(t.qty)}</td>
+          <td>${escapeHtml(t.location||"—")}</td>
+          <td>${escapeHtml(t.takerName||"—")}</td>
+        </tr>`;}).join("")}
+      </tbody>
+    </table>
+  `;
+}
+function exportMonthlyExcel(){
+  const txs=getMonthlyTx();
+  const jy=document.getElementById("rep_year").value, jm=JMONTHS[document.getElementById("rep_month").value-1];
+  if(!txs.length){ toast("تراکنشی برای این بازه یافت نشد","err"); return; }
+  const rows=txs.map(t=>{ const item=getItem(t.itemId); return {
+    "تاریخ":isoToJalaliStr(t.date), "نوع":t.type==="in"?"ورودی":"خروجی",
+    "نام قطعه":item?item.name:"", "مشخصات فنی":item?item.specs||"":"", "گروه":item?groupName(item.groupId):"",
+    "مقدار":t.qty, "محل مصرف":t.location||"", "نام خارج‌کننده":t.takerName||"", "ثبت‌کننده":t.user, "توضیحات":t.description||""
+  };});
+  const ws=XLSX.utils.json_to_sheet(rows);
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "گزارش ماهانه");
+  XLSX.writeFile(wb, `گزارش_ماهانه_${jm}_${jy}.xlsx`);
+}
+function exportMonthlyPdf(){
+  const txs=getMonthlyTx();
+  if(!txs.length){ toast("تراکنشی برای این بازه یافت نشد","err"); return; }
+  const jy=document.getElementById("rep_year").value, jmName=JMONTHS[document.getElementById("rep_month").value-1];
+  const { jsPDF } = window.jspdf;
+  const doc=new jsPDF();
+  doc.setFontSize(13);
+  doc.text(`Monthly Warehouse Report - ${jmName} ${jy} - Pars Water Station`, 14, 16);
+  doc.setFontSize(8);
+  let y=28;
+  doc.text("Date", 14, y); doc.text("Type", 34, y); doc.text("Part", 50, y); doc.text("Qty", 110, y); doc.text("Location", 125, y); doc.text("Taker", 165, y);
+  y+=6;
+  txs.forEach(t=>{
+    const item=getItem(t.itemId);
+    doc.text(isoToJalaliStr(t.date), 14, y);
+    doc.text(t.type==="in"?"IN":"OUT", 34, y);
+    doc.text(String(item?item.name:"").slice(0,28), 50, y);
+    doc.text((t.type==="in"?"+":"-")+t.qty, 110, y);
+    doc.text(String(t.location||"-").slice(0,18), 125, y);
+    doc.text(String(t.takerName||"-").slice(0,14), 165, y);
+    y+=6;
+    if(y>280){ doc.addPage(); y=20; }
+  });
+  doc.save(`Monthly_Report_${jmName}_${jy}.pdf`);
+  toast("توجه: به دلیل محدودیت فونت فارسی در PDF مرورگر، نام قطعات ممکن است ناخوانا نمایش داده شود؛ برای گزارش فارسی کامل از خروجی اکسل استفاده کنید.");
+}
+function renderShortagePreview(){
+  const items=STATE.data.items.filter(i=>i.currentStock<CONFIG.LOW_STOCK_THRESHOLD)
+    .map(i=>({...i, needed:Math.max(0,(i.maxStock||0)-i.currentStock)}))
+    .sort((a,b)=>a.currentStock-b.currentStock);
+  const wrap=document.getElementById("shortagePreviewWrap");
+  if(!items.length){ wrap.innerHTML=`<div class="empty-state"><div class="ic">✅</div>در حال حاضر کسری موجودی وجود ندارد</div>`; return; }
+  wrap.innerHTML=`
+    <table>
+      <thead><tr><th>نام قطعه</th><th>مشخصات فنی</th><th>گروه</th><th>موجودی فعلی</th><th>تعداد ماکزیمم</th><th>کسری (نیاز به تامین)</th></tr></thead>
+      <tbody>${items.map(i=>`<tr class="${stockStatus(i).row}">
+        <td>${escapeHtml(i.name)}</td><td class="text-muted">${escapeHtml(i.specs||"—")}</td><td>${groupName(i.groupId)}</td>
+        <td>${fmtNum(i.currentStock)}</td><td>${i.maxStock?fmtNum(i.maxStock):"—"}</td>
+        <td style="font-weight:700; color:var(--warn);">${i.maxStock?fmtNum(i.needed):"—"}</td>
+      </tr>`).join("")}</tbody>
+    </table>
+  `;
+}
+function exportShortagePdf(){
+  const items=STATE.data.items.filter(i=>i.currentStock<CONFIG.LOW_STOCK_THRESHOLD)
+    .map(i=>({...i, needed:Math.max(0,(i.maxStock||0)-i.currentStock)}));
+  if(!items.length){ toast("در حال حاضر کسری موجودی وجود ندارد","err"); return; }
+  const { jsPDF } = window.jspdf;
+  const doc=new jsPDF();
+  doc.setFontSize(13);
+  doc.text("Stock Shortage Report - Pars Water Station Warehouse", 14, 16);
+  doc.setFontSize(9);
+  doc.text("Date: "+todayJalaliStr(), 14, 24);
+  let y=34;
+  doc.text("Part", 14, y); doc.text("Current", 110, y); doc.text("Max", 140, y); doc.text("Needed", 165, y);
+  y+=6;
+  items.forEach(i=>{
+    doc.text(String(i.name).slice(0,40), 14, y);
+    doc.text(String(i.currentStock), 110, y);
+    doc.text(String(i.maxStock||"-"), 140, y);
+    doc.text(String(i.needed||"-"), 165, y);
+    y+=6;
+    if(y>280){ doc.addPage(); y=20; }
+  });
+  doc.save(`Shortage_Report_${Date.now()}.pdf`);
+}
+
+/* ================= ACTIVITY LOG PAGE ================= */
+function renderActivity(main){
+  const logs=STATE.data.activityLog;
+  main.innerHTML=`
+    <div class="topbar"><div><div class="page-title">لاگ فعالیت‌ها</div><div class="page-sub">${fmtNum(logs.length)} رویداد ثبت‌شده</div></div></div>
+    <div class="card"><div class="table-wrap">
+    ${logs.length? `
+      <table><thead><tr><th>تاریخ و ساعت</th><th>کاربر</th><th>عملیات</th><th>جزئیات</th></tr></thead>
+        <tbody>${logs.map(l=>`<tr><td>${isoToJalaliStr(l.date)} - ${new Date(l.date).toLocaleTimeString('fa-IR')}</td><td>${escapeHtml(l.user)}</td><td>${escapeHtml(l.action)}</td><td>${escapeHtml(l.details||"")}</td></tr>`).join("")}</tbody>
+      </table>` : `<div class="empty-state"><div class="ic">🕓</div>هیچ رویدادی ثبت نشده است</div>`}
+    </div></div>
+  `;
+}
+</script>
+</body>
+</html>
