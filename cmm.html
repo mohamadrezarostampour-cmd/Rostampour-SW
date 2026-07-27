@@ -57,18 +57,33 @@ if ('serviceWorker' in navigator) {
   (function initFb() {
     try {
       db = getFirestore(fbApp);
-      ready = true;
     } catch (e) {
       console.error('Firebase init failed:', e);
+      db = null;
       ready = false;
+      window.dispatchEvent(new CustomEvent('cmm-firebase-ready', { detail: { ready: false } }));
     }
-    window.dispatchEvent(new CustomEvent('cmm-firebase-ready', { detail: { ready } }));
   })();
 
+  let fbReadyDispatched = false;
   onAuthStateChanged(fbAuth, (user) => {
     const role = user ? (ROLE_MAP_EMAIL[user.email] || null) : null;
     window.dispatchEvent(new CustomEvent('cmm-auth-state', { detail: { user, role } }));
+    if (user && db && !fbReadyDispatched) {
+      fbReadyDispatched = true;
+      ready = true;
+      window.dispatchEvent(new CustomEvent('cmm-firebase-ready', { detail: { ready: true } }));
+    }
   });
+  // Fallback: if no auth session shows up at all (e.g. this file opened directly,
+  // outside the unified shell, with no internet), stop waiting after 6s so the
+  // app can fall back to offline mode instead of hanging forever.
+  setTimeout(() => {
+    if (!fbReadyDispatched) {
+      fbReadyDispatched = true;
+      window.dispatchEvent(new CustomEvent('cmm-firebase-ready', { detail: { ready: false } }));
+    }
+  }, 6000);
 
   function clean(data) { return JSON.parse(JSON.stringify(data)); }
 
