@@ -1243,6 +1243,9 @@ async function fbDelete(prop, id) {
 async function seedIfEmpty(prop, seedFn) {
   const name = FB_COLLECTIONS[prop];
   try {
+    let seedStatus = {};
+    try { seedStatus = (await window.CMMFirebase.getDocOnce('meta', 'seedStatus')) || {}; } catch (e) { /* ignore */ }
+    if (seedStatus[prop]) return; // already seeded once, ever - never touch again regardless of current count
     const existing = await window.CMMFirebase.getCollectionOnce(name);
     if (existing.length === 0 && seedFn) {
       const rows = seedFn();
@@ -1251,6 +1254,7 @@ async function seedIfEmpty(prop, seedFn) {
         try { await window.CMMFirebase.addDoc(name, rest); } catch (e) { /* ignore single seed failures */ }
       }
     }
+    try { await window.CMMFirebase.setDocMerge('meta', 'seedStatus', { [prop]: true }); } catch (e) { /* ignore */ }
   } catch (e) { /* ignore - watchCollection will still attach below regardless */ }
 }
 
