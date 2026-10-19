@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>کنتوربرداری انشعابات</title><link rel="stylesheet" href="module.css"></head>
+<body><div id="root"></div>
+<script src="report-kit.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+const app = initializeApp({ apiKey:"AIzaSyD3BGGIX2B104SdhML7eoxcvl3CjKGfXw4", authDomain:"rostampour-water-billing.firebaseapp.com", projectId:"rostampour-water-billing", storageBucket:"rostampour-water-billing.firebasestorage.app", messagingSenderId:"790326632020", appId:"1:790326632020:web:91cb2da018fc5e061717c1" }, 'meters');
+const auth = getAuth(app), db = getFirestore(app);
+const ADMIN = "rostampour@rostampour-system.local";
+document.documentElement.style.setProperty('--mc', '#7c5cff');
+const getLang = () => { try { return localStorage.getItem('rostampour-lang') || 'fa'; } catch (e) { return 'fa'; } };
+const isFa = () => getLang() === 'fa', L = (a, b) => isFa() ? a : b;
+const toFa = v => String(v).replace(/[0-9]/g, d => '۰۱۲۳۴۵۶۷۸۹'[d]), toEn = v => String(v).replace(/[۰-۹]/g, d => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d)).replace(/٫/g, '.');
+const D = v => isFa() ? toFa(v) : String(v);
+const num = (n, d) => (n == null || n === '' || isNaN(+n)) ? '—' : D((+n).toLocaleString('en-US', { maximumFractionDigits: d == null ? 1 : d }));
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const MF = ['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'], ME = ['Farvardin','Ordibehesht','Khordad','Tir','Mordad','Shahrivar','Mehr','Aban','Azar','Dey','Bahman','Esfand'];
+const mN = m => (isFa() ? MF : ME)[m - 1];
+const JF = new Intl.DateTimeFormat('en-US-u-ca-persian', { year:'numeric', month:'numeric', day:'numeric', timeZone:'UTC' });
+const jp = d => { const o = {}; JF.formatToParts(d).forEach(p => { if (['year','month','day'].includes(p.type)) o[p.type] = parseInt(p.value, 10); }); return o; };
+const todayJ = () => { const t = new Date(); return jp(new Date(Date.UTC(t.getFullYear(), t.getMonth(), t.getDate()))); };
+const serial = (y, m, d) => y * 365 + Math.floor(y / 4) + [0,31,62,93,124,155,186,216,246,276,306,336][m - 1] + d;
+const pad = n => String(n).padStart(2, '0');
+const GROUPS = { buy:['خرید آب (تولید / ورودی)','Water purchase (production / inlet)'], org:['مصرف سازمان','Organization'], green:['مصرف فضای سبز','Green space'], company:['مصرف شرکت‌ها','Companies'], public:['مصرف عام‌المنفعه','Public utility'], other:['مصرف سایر','Other'] };
+const gL = k => GROUPS[k] ? L(GROUPS[k][0], GROUPS[k][1]) : (k || '—');
+const SALES = ['org','green','company','public','other'];
+const S = { consumers: [], readings: [], auditLogs: [], view: 'dash', ready: false };
+const UI = { jy: todayJ().year, mode: 'monthly', f: {}, charts: {} };
+let unsubs = [];
+const root = document.getElementById('root');
+const toast = m => { const t = document.getElementById('toast'); if (!t) return; t.textContent = m; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 3000); };
+const logAct = async (a, d) => { try { await addDoc(collection(db, 'auditLogs'), { action: a, detail: d || '', user: 'rostampour', at: new Date().toISOString() }); } catch (e) {} };
+function modal(title, body, onSave, label) {
+  const ov = document.getElementById('overlay'), m = ov.querySelector('.modal');
+  m.innerHTML = `<div class="modal-head"><h3>${esc(title)}</h3><div class="close-x" id="x">✕</div></div><div class="modal-body">${body}</div><div class="modal-foot">${onSave ? `<button class="btn btn-primary" id="ok">${label || L('ذخیره','Save')}</button>` : ''}<button class="btn btn-ghost" id="no">${L('انصراف','Cancel')}</button></div>`;
+  ov.classList.add('active'); const close = () => ov.classList.remove('active');
+  m.querySelector('#x').onclick = close; m.querySelector('#no').onclick = close;
+  if (onSave) m.querySelector('#ok').onclick = async () => { try { if (await onSave(m) !== false) close(); } catch (e) { console.error(e); toast(L('خطا در ذخیره‌سازی','Save failed')); } };
+}
+const gv = (m, id) => (m.querySelector('#' + id) || {}).value || '';
+const fld = (id, l, v, t) => `<div class="field"><label>${l}</label><input id="${id}" type="${t || 'text'}" ${t === 'number' ? 'step="any" inputmode="decimal"' : ''} value="${esc(v == null ? '' : v)}"></div>`;
+const sel = (id, l, o, v) => `<div class="field"><label>${l}</label><select id="${id}">${o.map(x => `<option value="${esc(x[0])}" ${String(x[0]) === String(v) ? 'selected' : ''}>${esc(x[1])}</option>`).join('')}</select></div>`;
+const dateF = (id, l, p) => { const cy = todayJ().year; return `<div class="field"><label>${l}</label><div class="dateline" id="${id}"><select data-p="y">${Array.from({length:8},(_,i)=>cy-6+i).map(y=>`<option value="${y}" ${y===p.year?'selected':''}>${D(y)}</option>`).join('')}</select><select data-p="m">${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i+1===p.month?'selected':''}>${mN(i+1)}</option>`).join('')}</select><select data-p="d">${Array.from({length:31},(_,i)=>`<option value="${i+1}" ${i+1===p.day?'selected':''}>${D(i+1)}</option>`).join('')}</select></div></div>`; };
+const dateV = (m, id) => { const w = m.querySelector('#' + id); return { y: +w.querySelector('[data-p=y]').value, m: +w.querySelector('[data-p=m]').value, d: +w.querySelector('[data-p=d]').value }; };
+const fmtJ = r => D(r.date || '');
+
+/* firestore */
+function attach() {
+  unsubs.forEach(u => u()); unsubs = [];
+  ['consumers', 'readings', 'auditLogs'].forEach(n => unsubs.push(onSnapshot(collection(db, n), s => { const a = []; s.forEach(d => a.push({ id: d.id, ...d.data() })); S[n] = a; sched(); }, e => console.error(n, e))));
+}
+let tm; const sched = () => { clearTimeout(tm); tm = setTimeout(() => S.ready && render(), 80); };
+
+/* data helpers */
+const eligible = r => !r.closed;
+const cons = r => eligible(r) ? (Number(r.consumption) || 0) : 0;
+const days = r => { const prev = S.readings.filter(x => x.consumerId === r.consumerId && (x.periodSerial || 0) < (r.periodSerial || 0)).sort((a, b) => b.periodSerial - a.periodSerial)[0]; return prev ? Math.max(1, r.periodSerial - prev.periodSerial) : 30; };
+const flowLs = r => eligible(r) ? (Number(r.consumption) || 0) * 1000 / (days(r) * 86400) : null; // L/s
+const flowM3d = r => eligible(r) ? (Number(r.consumption) || 0) / days(r) : null;
+const consumerOf = id => S.consumers.find(c => c.id === id) || {};
+const grpOf = r => r.group || consumerOf(r.consumerId).group;
+function agg(rs) {
+  const by = {}; Object.keys(GROUPS).forEach(k => by[k] = 0);
+  rs.forEach(r => { const g = grpOf(r); if (g in by) by[g] += cons(r); });
+  const buy = by.buy, sales = SALES.reduce((s, k) => s + by[k], 0);
+  return { by, buy, sales, loss: buy - sales, lossPct: buy > 0 ? (buy - sales) / buy * 100 : null };
+}
+const inYM = (r, y, m) => r.jy === y && (m == null || r.jm === m);
+
+/* layout */
+const NAV = [['dash','📊',['داشبورد','Dashboard']],['reading','📖',['قرائت کنتور','Meter reading']],['consumers','🔢',['کنتورها و انشعابات','Meters & connections']],['reports','📈',['آمار مصرف، تولید و دبی','Consumption, production & flow']],['log','📋',['لاگ فعالیت','Activity log']]];
+let shownLang = getLang();
+function shell() {
+  shownLang = getLang();
+  document.documentElement.lang = isFa() ? 'fa' : 'en'; document.documentElement.dir = isFa() ? 'rtl' : 'ltr';
+  root.innerHTML = `<div class="app"><aside class="sidebar" id="sb"><div class="brand"><div class="brand-logo"><img src="icon-192.png" alt=""></div><div class="brand-name">${L('کنتوربرداری انشعابات','Meter Reading')}<small>${L('بخش ۳','Section 3')}</small></div></div>
+  <nav class="nav">${NAV.map(n => `<div class="nav-item ${S.view === n[0] ? 'active' : ''}" data-v="${n[0]}"><span style="font-size:16px">${n[1]}</span><span>${L(n[2][0], n[2][1])}</span></div>`).join('')}</nav>
+  <div class="sidebar-foot"><span class="dot-live"></span><span>${L('داده‌ها به‌صورت آنلاین ذخیره می‌شود','Data is stored online')}</span></div></aside><div class="scrim" id="sc"></div>
+  <div class="main"><div class="topbar"><div style="display:flex;align-items:center;gap:12px"><button class="menu-btn" id="mb">☰</button><div><h1 id="t"></h1><div class="sub" id="s"></div></div></div></div><div class="content" id="c"></div></div></div>
+  <div class="overlay" id="overlay"><div class="modal"></div></div><div class="toast" id="toast"></div>`;
+  root.querySelectorAll('.nav-item').forEach(n => n.onclick = () => { S.view = n.dataset.v; closeSb(); root.querySelectorAll('.nav-item').forEach(x => x.classList.toggle('active', x === n)); render(); });
+  document.getElementById('mb').onclick = () => { sb.classList.add('open'); sc.classList.add('show'); }; document.getElementById('sc').onclick = closeSb;
+}
+const closeSb = () => { const a = document.getElementById('sb'), b = document.getElementById('sc'); a && a.classList.remove('open'); b && b.classList.remove('show'); };
+const title = (t, s) => { document.getElementById('t').textContent = t; document.getElementById('s').textContent = s || ''; };
+function killCharts() { Object.values(UI.charts).forEach(c => { try { c.destroy(); } catch (e) {} }); UI.charts = {}; }
+function render() { killCharts(); ({ dash: vDash, reading: vReading, consumers: vCons, reports: vReports, log: vLog })[S.view](document.getElementById('c')); }
+const dk = () => document.body.classList.contains('dark-theme'), ax = () => dk() ? '#8db3c2' : '#52708a', gr = () => dk() ? 'rgba(255,255,255,.07)' : 'rgba(10,50,65,.08)';
+const PAL = ['#1565c0','#00a896','#ff7a59','#f5a524','#7c5cff','#1f9d76'];
+const cfg = (type, labels, sets) => ({ type, data: { labels, datasets: sets }, options: { responsive: true, maintainAspectRatio: false, interaction: { mode:'index', intersect:false }, plugins: { legend: { labels: { color: ax(), font: { size: 11 } } } }, scales: { x: { ticks: { color: ax(), font: { size: 10 } }, grid: { display: false } }, y: { beginAtZero: true, ticks: { color: ax() }, grid: { color: gr() } } } } });
+const ds = (type, label, data, c) => type === 'bar' ? { label, data, backgroundColor: c, borderRadius: 3 } : { label, data, borderColor: c, backgroundColor: c + '33', tension: .3, spanGaps: true, borderWidth: 2, pointRadius: 2.5 };
+async function mk(id, c) { if (typeof Chart === 'undefined') { try { await RK.ensure.chart(); } catch (e) {} } const cv = document.getElementById(id); if (cv && typeof Chart !== 'undefined') UI.charts[id] = new Chart(cv.getContext('2d'), c); }
+
+/* dashboard */
+function vDash(c) {
+  title(L('داشبورد کنتوربرداری','Meter reading dashboard'), L('مصرف، تولید و دبی','Consumption, production and flow'));
+  const t = todayJ(), a = agg(S.readings.filter(r => inYM(r, t.year, t.month)));
+  const flows = S.readings.filter(r => inYM(r, t.year, t.month) && r.group !== 'buy').map(flowLs).filter(x => x != null);
+  const buyR = S.readings.filter(r => inYM(r, t.year, t.month) && grpOf(r) === 'buy'), buyFlow = buyR.map(flowLs).filter(x => x != null).reduce((s, x) => s + x, 0);
+  const k = (l, v, u, col) => `<div class="card kpi" style="--k:${col};margin:0"><div class="kpi-label">${l}</div><div class="kpi-value">${v} <small style="font-size:11px;color:var(--text-dim);font-weight:500">${u}</small></div></div>`;
+  c.innerHTML = `<div class="grid kpi-row">${k(L('تعداد کنتور / انشعاب','Meters'), D(S.consumers.length), '', 'var(--violet)')}${k(L('تولید / ورودی ماه جاری','Production this month'), num(a.buy, 0), 'm³', 'var(--accent-2)')}${k(L('مصرف فروش ماه جاری','Consumption this month'), num(a.sales, 0), 'm³', 'var(--green)')}${k(L('دبی متوسط ورودی','Avg inlet flow'), num(buyFlow, 2), 'L/s', 'var(--amber)')}${k(L('اختلاف تولید و مصرف','Production – consumption gap'), a.lossPct == null ? '—' : num(a.lossPct, 1) + '٪', '', a.lossPct > 20 ? 'var(--red)' : 'var(--green)')}</div>
+  <div class="charts-grid"><div class="chart-card"><div class="ct">${L('مصرف گروه‌ها در ماه جاری','Group consumption this month')}</div><div class="chart-box"><canvas id="d1"></canvas></div></div>
+  <div class="chart-card"><div class="ct">${L('تولید و مصرف — ماهانه','Production vs consumption — monthly')}</div><div class="chart-box"><canvas id="d2"></canvas></div></div></div>`;
+  mk('d1', { type: 'doughnut', data: { labels: SALES.map(gL), datasets: [{ data: SALES.map(k => a.by[k]), backgroundColor: PAL }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: ax() } } } } });
+  const ms = Array.from({ length: 12 }, (_, i) => agg(S.readings.filter(r => inYM(r, t.year, i + 1))));
+  mk('d2', cfg('bar', Array.from({ length: 12 }, (_, i) => mN(i + 1)), [ds('bar', L('تولید','Production'), ms.map(x => +x.buy.toFixed(1)), '#1565c0'), ds('bar', L('مصرف','Consumption'), ms.map(x => +x.sales.toFixed(1)), '#00a896')]));
+}
+
+/* consumers */
+function vCons(c) {
+  title(L('کنتورها و انشعابات','Meters & connections'), L('فهرست کنتورهای ثبت‌شده','Registered meters'));
+  const q = (UI.f.q || '').toLowerCase(), rows = S.consumers.filter(x => !q || ((x.name || '') + (x.code || '')).toLowerCase().includes(q)).sort((a, b) => String(a.code).localeCompare(String(b.code), 'en', { numeric: true }));
+  c.innerHTML = `<div class="toolbar"><button class="btn btn-primary" id="add">＋ ${L('افزودن کنتور','Add meter')}</button><div class="search">🔍<input id="q" value="${esc(UI.f.q || '')}" placeholder="${L('جستجو...','Search...')}"></div><div id="ex">${RK.exportBarHTML()}</div></div>
+  <div class="card" style="padding:0"><div class="table-wrap" style="border:none"><table><thead><tr><th>${L('کد','Code')}</th><th>${L('نام','Name')}</th><th>${L('گروه','Group')}</th><th>${L('وضعیت','Status')}</th><th></th></tr></thead><tbody>${rows.length ? rows.map(x => `<tr><td class="cell-mono cell-strong">${esc(x.code)}</td><td>${esc(x.name)}</td><td>${esc(gL(x.group))}</td><td><span class="tag ${x.status === 'inactive' ? 'tag-red' : x.status === 'suspended' ? 'tag-amber' : 'tag-green'}">${x.status === 'inactive' ? L('غیرفعال','Inactive') : x.status === 'suspended' ? L('معلق','Suspended') : L('فعال','Active')}</span></td><td><div class="row-actions"><span class="icon-sm" data-e="${x.id}">✎</span><span class="icon-sm" data-d="${x.id}">🗑</span></div></td></tr>`).join('') : `<tr><td colspan="5"><div class="empty"><h4>${L('کنتوری ثبت نشده','No meters')}</h4></div></td></tr>`}</tbody></table></div></div>`;
+  add.onclick = () => consForm(null);
+  q_.oninput = null; document.getElementById('q').oninput = e => { UI.f.q = e.target.value; const p = e.target.selectionStart; vCons(c); const el = document.getElementById('q'); el.focus(); el.setSelectionRange(p, p); };
+  c.querySelectorAll('[data-e]').forEach(b => b.onclick = () => consForm(S.consumers.find(x => x.id === b.dataset.e)));
+  c.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { const x = S.consumers.find(y => y.id === b.dataset.d); modal(L('حذف کنتور','Delete meter'), esc(x.name), async () => { await deleteDoc(doc(db, 'consumers', x.id)); logAct(L('حذف کنتور','Deleted meter'), x.code); }, L('حذف','Delete')); });
+  RK.bindExport(document.getElementById('ex'), async () => ({ title: L('فهرست کنتورها','Meter register'), subtitle: '', meta: [], sections: [{ title: L('کنتورها','Meters'), table: { head: [L('کد','Code'), L('نام','Name'), L('گروه','Group'), L('وضعیت','Status')], rows: rows.map(x => [x.code, x.name, gL(x.group), x.status || 'active']) } }] }), () => 'meters', toast);
+}
+const q_ = {};
+function consForm(ex) {
+  modal(ex ? L('ویرایش کنتور','Edit meter') : L('افزودن کنتور','Add meter'), fld('code', L('کد کنتور','Meter code'), ex && ex.code) + fld('name', L('نام','Name'), ex && ex.name) + sel('grp', L('گروه','Group'), Object.keys(GROUPS).map(k => [k, gL(k)]), ex ? ex.group : 'org') + sel('st', L('وضعیت','Status'), [['active', L('فعال','Active')], ['suspended', L('معلق','Suspended')], ['inactive', L('غیرفعال','Inactive')]], ex ? ex.status : 'active'), async m => {
+    const code = gv(m, 'code').trim(), name = gv(m, 'name').trim(); if (!code || !name) { toast(L('کد و نام الزامی است','Code and name required')); return false; }
+    const rec = { code, name, group: gv(m, 'grp'), status: gv(m, 'st') };
+    if (ex) await updateDoc(doc(db, 'consumers', ex.id), rec); else await addDoc(collection(db, 'consumers'), Object.assign({ createdAt: new Date().toISOString() }, rec));
+    logAct(L('ثبت کنتور','Saved meter'), code); toast(L('ذخیره شد','Saved'));
+  });
+}
+
+/* readings */
+function vReading(c) {
+  title(L('قرائت کنتور','Meter reading'), L('ثبت عدد کنتور؛ مصرف و دبی خودکار محاسبه می‌شود','Enter the meter value; consumption and flow are computed automatically'));
+  const q = (UI.f.rq || '').toLowerCase(), rows = S.readings.filter(r => !q || ((r.consumerName || '') + (r.consumerCode || '')).toLowerCase().includes(q)).sort((a, b) => (b.periodSerial || 0) - (a.periodSerial || 0));
+  c.innerHTML = `<div class="toolbar"><button class="btn btn-primary" id="add">＋ ${L('ثبت قرائت','New reading')}</button><div class="search">🔍<input id="q" value="${esc(UI.f.rq || '')}" placeholder="${L('جستجو...','Search...')}"></div><div id="ex">${RK.exportBarHTML()}</div></div>
+  <div class="card" style="padding:0"><div class="table-wrap" style="border:none;max-height:68vh;overflow:auto"><table><thead><tr><th>${L('کد','Code')}</th><th>${L('کنتور','Meter')}</th><th>${L('تاریخ','Date')}</th><th>${L('قبلی','Previous')}</th><th>${L('جدید','New')}</th><th>${L('مصرف (m³)','Consumption (m³)')}</th><th>${L('دبی (L/s)','Flow (L/s)')}</th><th></th></tr></thead><tbody>${rows.length ? rows.map(r => `<tr><td class="cell-mono">${esc(r.consumerCode)}</td><td class="cell-strong">${esc(r.consumerName)}</td><td class="cell-mono">${fmtJ(r)}</td><td class="cell-mono">${num(r.prevReading, 1)}</td><td class="cell-mono">${num(r.newReading, 1)}</td><td class="cell-mono">${r.closed ? L('تعطیل','Closed') : num(r.consumption, 1)}</td><td class="cell-mono">${r.closed ? '—' : num(flowLs(r), 3)}</td><td><div class="row-actions"><span class="icon-sm" data-d="${r.id}">🗑</span></div></td></tr>`).join('') : `<tr><td colspan="8"><div class="empty"><h4>${L('قرائتی ثبت نشده','No readings')}</h4></div></td></tr>`}</tbody></table></div></div>`;
+  document.getElementById('add').onclick = readForm;
+  document.getElementById('q').oninput = e => { UI.f.rq = e.target.value; const p = e.target.selectionStart; vReading(c); const el = document.getElementById('q'); el.focus(); el.setSelectionRange(p, p); };
+  c.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { const r = S.readings.find(x => x.id === b.dataset.d); modal(L('حذف قرائت','Delete reading'), esc(r.consumerName + ' — ' + r.date), async () => { await deleteDoc(doc(db, 'readings', r.id)); logAct(L('حذف قرائت','Deleted reading'), r.consumerCode + ' ' + r.date); }, L('حذف','Delete')); });
+  RK.bindExport(document.getElementById('ex'), async () => ({ title: L('قرائت کنتورها','Meter readings'), subtitle: '', meta: [], sections: [{ title: L('قرائت‌ها','Readings'), table: { head: [L('کد','Code'), L('کنتور','Meter'), L('تاریخ','Date'), L('قبلی','Prev'), L('جدید','New'), L('مصرف m³','m³'), L('دبی L/s','L/s')], rows: rows.map(r => [r.consumerCode, r.consumerName, fmtJ(r), num(r.prevReading, 1), num(r.newReading, 1), r.closed ? '—' : num(r.consumption, 1), r.closed ? '—' : num(flowLs(r), 3)]) } }] }), () => 'readings', toast);
+}
+function lastRead(id) { return S.readings.filter(r => r.consumerId === id && !r.closed).sort((a, b) => b.periodSerial - a.periodSerial)[0]; }
+function readForm() {
+  if (!S.consumers.length) { toast(L('ابتدا کنتور اضافه کنید','Add a meter first')); return; }
+  const act = S.consumers.filter(c => c.status !== 'inactive').sort((a, b) => String(a.code).localeCompare(String(b.code), 'en', { numeric: true }));
+  modal(L('ثبت قرائت','New reading'), sel('cid', L('کنتور','Meter'), act.map(c => [c.id, c.code + ' — ' + c.name]), act[0].id) + dateF('dt', L('تاریخ قرائت (شمسی)','Reading date (Jalali)'), todayJ()) + fld('prev', L('عدد قبلی','Previous value'), '', 'number') + fld('neu', L('عدد جدید','New value'), '', 'number') + `<label style="display:flex;gap:8px;align-items:center;font-size:13px"><input type="checkbox" id="cl"> ${L('تعطیل / خراب','Closed / faulty')}</label><div class="notice" id="pv" style="margin:0"></div>`, async m => {
+    const c = S.consumers.find(x => x.id === gv(m, 'cid')), d = dateV(m, 'dt'), closed = m.querySelector('#cl').checked;
+    const prev = Number(toEn(gv(m, 'prev'))) || 0, neu = Number(toEn(gv(m, 'neu')));
+    if (!closed && (gv(m, 'neu') === '' || isNaN(neu))) { toast(L('عدد جدید را وارد کنید','Enter the new value')); return false; }
+    if (!closed && neu < prev) { toast(L('عدد جدید نمی‌تواند کمتر از قبلی باشد','New value cannot be lower than previous')); return false; }
+    await addDoc(collection(db, 'readings'), { consumerId: c.id, consumerCode: c.code, consumerName: c.name, group: c.group, date: `${d.y}/${pad(d.m)}/${pad(d.d)}`, periodSerial: serial(d.y, d.m, d.d), jy: d.y, jm: d.m, prevReading: prev, newReading: closed ? prev : neu, consumption: closed ? 0 : Math.round((neu - prev) * 100) / 100, closed, notes: '', agent: 'rostampour', agentRole: 'admin', createdAt: new Date().toISOString() });
+    logAct(L('ثبت قرائت','Reading saved'), c.code); toast(L('قرائت ثبت شد','Reading saved'));
+  });
+  const m = document.querySelector('.modal'), upd = () => { const l = lastRead(gv(m, 'cid')); m.querySelector('#prev').value = l ? l.newReading : 0; pv(); }, pv = () => { const p = Number(toEn(gv(m, 'prev'))) || 0, n = Number(toEn(gv(m, 'neu'))); m.querySelector('#pv').innerHTML = isNaN(n) || gv(m, 'neu') === '' ? L('عدد جدید را وارد کنید','Enter the new value') : L('مصرف: ','Consumption: ') + '<b>' + num(Math.max(0, n - p), 2) + '</b> m³'; };
+  m.querySelector('#cid').onchange = upd; m.querySelector('#prev').oninput = pv; m.querySelector('#neu').oninput = pv; upd();
+}
+
+/* reports */
+function buckets() {
+  if (UI.mode === 'yearly') { const ys = new Set([todayJ().year]); S.readings.forEach(r => r.jy && ys.add(r.jy)); return [...ys].sort().map(y => ({ label: D(y), f: r => r.jy === y })); }
+  if (UI.mode === 'monthly') return Array.from({ length: 12 }, (_, i) => ({ label: mN(i + 1), f: r => r.jy === UI.jy && r.jm === i + 1 }));
+  return Array.from({ length: 12 }, (_, i) => ({ label: mN(i + 1), f: r => r.jy === UI.jy && r.jm === i + 1 }));
+}
+function reportData() {
+  const bk = buckets(), rows = bk.map(b => { const rs = S.readings.filter(b.f), a = agg(rs); const fl = rs.filter(r => grpOf(r) === 'buy').map(flowM3d).filter(x => x != null).reduce((s, x) => s + x, 0); return { b, a, fl, n: rs.length }; });
+  return { rows, head: [L('بازه','Period'), L('تولید / ورودی (m³)','Production (m³)'), ...SALES.map(k => gL(k) + ' (m³)'), L('جمع مصرف (m³)','Total consumption (m³)'), L('اختلاف (m³)','Gap (m³)'), L('اختلاف ٪','Gap %'), L('دبی متوسط ورودی (L/s)','Avg inlet flow (L/s)'), L('تعداد قرائت','Readings')], tab: rows.map(x => [x.b.label, num(x.a.buy, 0), ...SALES.map(k => num(x.a.by[k], 0)), num(x.a.sales, 0), num(x.a.loss, 0), x.a.lossPct == null ? '—' : num(x.a.lossPct, 1), num(x.fl * 1000 / 86400, 2), D(x.n)]) };
+}
+function chartSets() { const { rows } = reportData(), lb = rows.map(r => r.b.label); return [
+  { title: L('تولید و مصرف','Production vs consumption'), type: 'bar', labels: lb, sets: [ds('bar', L('تولید','Production'), rows.map(r => +r.a.buy.toFixed(1)), '#1565c0'), ds('bar', L('مصرف','Consumption'), rows.map(r => +r.a.sales.toFixed(1)), '#00a896')] },
+  { title: L('مصرف به تفکیک گروه','Consumption by group'), type: 'bar', labels: lb, sets: SALES.map((k, i) => ds('bar', gL(k), rows.map(r => +r.a.by[k].toFixed(1)), PAL[i])) },
+  { title: L('دبی متوسط ورودی (L/s)','Average inlet flow (L/s)'), type: 'line', labels: lb, sets: [ds('line', L('دبی','Flow'), rows.map(r => r.fl ? +(r.fl * 1000 / 86400).toFixed(3) : null), '#7c5cff')] },
+  { title: L('درصد اختلاف تولید و مصرف','Production–consumption gap %'), type: 'line', labels: lb, sets: [ds('line', '%', rows.map(r => r.a.lossPct == null ? null : +r.a.lossPct.toFixed(1)), '#d43439')] }]; }
+function vReports(c) {
+  title(L('آمار مصرف، تولید و دبی','Consumption, production & flow'), L('ماهانه و سالانه با نمودار و خروجی PDF / Word / Excel','Monthly & yearly with charts and PDF / Word / Excel export'));
+  const ys = new Set([todayJ().year]); S.readings.forEach(r => r.jy && ys.add(r.jy));
+  c.innerHTML = `<div class="card"><div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap"><div class="seg" id="mo">${[['monthly', L('ماهانه','Monthly')], ['yearly', L('سالانه','Yearly')]].map(([k, l]) => `<button class="btn btn-sm ${UI.mode === k ? 'btn-primary' : 'btn-ghost'}" data-m="${k}">${l}</button>`).join('')}</div><div class="field" style="min-width:100px;${UI.mode === 'yearly' ? 'display:none' : ''}"><label>${L('سال','Year')}</label><select id="y">${[...ys].sort((a, b) => b - a).map(y => `<option value="${y}" ${y === UI.jy ? 'selected' : ''}>${D(y)}</option>`).join('')}</select></div><div style="flex:1"></div><div id="ex">${RK.exportBarHTML()}</div></div></div><div id="rb"></div>`;
+  UI.mode = UI.mode === 'daily' ? 'monthly' : UI.mode;
+  c.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { UI.mode = b.dataset.m; vReports(c); }); document.getElementById('y').onchange = e => { UI.jy = +e.target.value; vReports(c); };
+  const rd = reportData(), cs = chartSets();
+  document.getElementById('rb').innerHTML = `<div class="charts-grid">${cs.map((x, i) => `<div class="chart-card"><div class="ct">${esc(x.title)}</div><div class="chart-box"><canvas id="r${i}"></canvas></div></div>`).join('')}</div><div class="card" style="padding:0"><div class="table-wrap" style="border:none;overflow:auto"><table><thead><tr>${rd.head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rd.tab.map(r => `<tr>${r.map((x, i) => `<td class="${i ? 'cell-mono' : 'cell-strong'}">${esc(x)}</td>`).join('')}</tr>`).join('')}</tbody></table></div></div>`;
+  cs.forEach((x, i) => mk('r' + i, cfg(x.type, x.labels, x.sets)));
+  RK.bindExport(document.getElementById('ex'), async () => {
+    const rd2 = reportData(), cs2 = chartSets(), secs = [];
+    for (const x of cs2) { let img = ''; try { img = await RK.chartImage(JSON.parse(JSON.stringify(cfg(x.type, x.labels, x.sets), (k, v) => v === '#8db3c2' ? '#52708a' : v)), 900, 340); } catch (e) {} secs.push({ title: x.title, chart: img }); }
+    secs.push({ title: L('جدول تفصیلی','Detailed table'), table: { head: rd2.head, rows: rd2.tab } });
+    return { title: L('گزارش مصرف، تولید و دبی','Consumption, production & flow report'), subtitle: UI.mode === 'yearly' ? L('سالانه','Yearly') : L('ماهانه — سال ','Monthly — year ') + D(UI.jy), meta: [], sections: secs };
+  }, () => 'meters-' + UI.mode + '-' + UI.jy, toast);
+}
+function vLog(c) {
+  title(L('لاگ فعالیت','Activity log'), '');
+  const rows = [...S.auditLogs].sort((a, b) => String(b.at || '').localeCompare(String(a.at || ''))).slice(0, 300);
+  c.innerHTML = `<div class="card" style="padding:0"><div class="table-wrap" style="border:none;max-height:72vh;overflow:auto"><table><thead><tr><th>${L('زمان','Time')}</th><th>${L('عملیات','Action')}</th><th>${L('جزئیات','Details')}</th></tr></thead><tbody>${rows.map(r => `<tr><td class="cell-mono">${D(String(r.at || '').replace('T', ' ').slice(0, 16))}</td><td class="cell-strong">${esc(r.action)}</td><td>${esc(r.detail || '')}</td></tr>`).join('') || `<tr><td colspan="3"><div class="empty"><h4>—</h4></div></td></tr>`}</tbody></table></div></div>`;
+}
+
+/* boot */
+const th = m => document.body.classList.toggle('dark-theme', m === 'dark');
+try { if (localStorage.getItem('rostampour-theme') === 'dark') th('dark'); } catch (e) {}
+addEventListener('message', ev => { const d = ev.data || {}; if (d.rostampourTheme) { th(d.rostampourTheme); try { localStorage.setItem('rostampour-theme', d.rostampourTheme); } catch (e) {} S.ready && render(); } if (d.rostampourLang) { try { localStorage.setItem('rostampour-lang', d.rostampourLang); } catch (e) {} if (d.rostampourLang !== shownLang) { if (S.ready) { shell(); render(); } else noAuth(); } } });
+const noAuth = () => { shownLang = getLang(); root.innerHTML = `<div class="card login-note"><h3>${L('ابتدا وارد سامانه شوید','Please sign in first')}</h3><p style="color:var(--text-muted);font-size:13px;margin:8px 0 16px">${L('این بخش فقط از داخل سامانه‌ی اصلی در دسترس است.','Available from the main application only.')}</p><a class="btn btn-primary" href="index.html" target="_top">${L('صفحه ورود','Sign in')}</a></div>`; };
+onAuthStateChanged(auth, u => { if (u && u.email === ADMIN) { if (!S.ready) { S.ready = true; shell(); attach(); render(); } } else { S.ready = false; unsubs.forEach(x => x()); unsubs = []; noAuth(); } });
+noAuth();
+</script></body></html>

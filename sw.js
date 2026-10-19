@@ -1,15 +1,8 @@
-const CACHE_NAME = 'rostampour-unified-v1';
+const CACHE_NAME = 'rostampour-unified-v2';
 const ASSETS = [
-  './',
-  './index.html',
-  './cmm.html',
-  './warehouse.html',
-  './waterbilling.html',
-  './manifest.json',
-  './icon-192.png',
-  './icon-512.png',
-  './favicon-32.png',
-  './apple-touch-icon.png'
+  './','./index.html','./cmm.html','./warehouse.html','./meters.html','./sewage.html','./desal.html',
+  './module.css','./report-kit.js','./station-reports.js','./plant-core.js','./i18n-en.js','./vendor-docx.js',
+  './manifest.json','./icon-192.png','./icon-512.png','./favicon-32.png','./apple-touch-icon.png','./report-logo.png','./banner-logo.png'
 ];
 
 self.addEventListener('install', (event) => {
@@ -35,6 +28,6 @@ self.addEventListener('fetch', (event) => {
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, resClone));
         return res;
       })
-      .catch(() => caches.match(event.request).then((cached) => cached || caches.match('./index.html')))
+      .catch(() => caches.match(event.request).then((cached) => cached || (event.request.mode === 'navigate' ? caches.match('./index.html') : Response.error())))
   );
 });

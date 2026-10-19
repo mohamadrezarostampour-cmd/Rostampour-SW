@@ -1,13 +1,13 @@
 {
-  "name": "Rostampour - سامانه جامع ایستگاه توزیع آب پارس",
+  "name": "Rostampour - سامانه جامع رستم‌پور",
   "short_name": "Rostampour",
-  "description": "سامانه جامع نگهداری و تعمیرات، انبار و کنتورخوانی ایستگاه توزیع آب پارس",
+  "description": "سامانه جامع ۵ بخشی: ایستگاه توزیع آب پارس، انبار، کنتوربرداری، تصفیه‌خانه فاضلاب و آبشیرین‌کن ۱",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#0a0f1c",
-  "theme_color": "#0a0f1c",
+  "background_color": "#0b6fb8",
+  "theme_color": "#0b6fb8",
   "dir": "rtl",
   "lang": "fa",
   "icons": [

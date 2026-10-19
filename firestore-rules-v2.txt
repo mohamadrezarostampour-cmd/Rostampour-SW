@@ -1,0 +1,37 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ورودی واحد: فقط کاربر rostampour به همه مجموعه‌ها دسترسی دارد
+    function isAdmin() {
+      return request.auth != null && request.auth.token.email == 'rostampour@rostampour-system.local';
+    }
+    match /consumers/{id} { allow read, write: if isAdmin(); }
+    match /tariffs/{id} { allow read, write: if isAdmin(); }
+    match /meterTypes/{id} { allow read, write: if isAdmin(); }
+    match /routes/{id} { allow read, write: if isAdmin(); }
+    match /readings/{id} { allow read, write: if isAdmin(); }
+    match /auditLogs/{id} { allow read, write: if isAdmin(); }
+    match /settings/{id} { allow read, write: if isAdmin(); }
+    match /wh_meta/{id} { allow read, write: if isAdmin(); }
+    match /cmm_equipment/{id} { allow read, write: if isAdmin(); }
+    match /cmm_pm/{id} { allow read, write: if isAdmin(); }
+    match /cmm_cm/{id} { allow read, write: if isAdmin(); }
+    match /cmm_tanks/{id} { allow read, write: if isAdmin(); }
+    match /cmm_plants/{id} { allow read, write: if isAdmin(); }
+    match /cmm_pumping/{id} { allow read, write: if isAdmin(); }
+    match /cmm_activitylog/{id} { allow read, write: if isAdmin(); }
+    match /cmm_meta/{id} { allow read, write: if isAdmin(); }
+    match /cmm_history/{id} { allow read, write: if isAdmin(); }
+    match /sw_daily/{id} { allow read, write: if isAdmin(); }
+    match /sw_equipment/{id} { allow read, write: if isAdmin(); }
+    match /sw_pm/{id} { allow read, write: if isAdmin(); }
+    match /sw_cm/{id} { allow read, write: if isAdmin(); }
+    match /sw_log/{id} { allow read, write: if isAdmin(); }
+    match /ds_daily/{id} { allow read, write: if isAdmin(); }
+    match /ds_equipment/{id} { allow read, write: if isAdmin(); }
+    match /ds_pm/{id} { allow read, write: if isAdmin(); }
+    match /ds_cm/{id} { allow read, write: if isAdmin(); }
+    match /ds_log/{id} { allow read, write: if isAdmin(); }
+    match /ds_wo/{id} { allow read, write: if isAdmin(); }
+  }
+}

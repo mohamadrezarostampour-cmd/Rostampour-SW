@@ -54,32 +54,55 @@
 </script>
 <style>
 :root{
-  --bg-0:#000000;
-  --bg-1:#0a0d12;
-  --bg-2:#11151c;
-  --bg-3:#181e28;
-  --line:#232b38;
-  --line-soft:#1b212c;
-  --txt-1:#eaf6ff;
-  --txt-2:#93b3cc;
-  --txt-3:#5e7690;
-  --accent:#38bdf8;
-  --accent-2:#7dd3fc;
-  --warn:#f5a524;
-  --danger:#f0475c;
-  --ok:#2ecf7a;
-  --shadow: 0 8px 28px rgba(0,0,0,.55);
+  --bg-0:#f2f8fa;
+  --bg-1:#ffffff;
+  --bg-2:#ffffff;
+  --bg-3:#eaf4f5;
+  --line:rgba(10,50,65,0.14);
+  --line-soft:rgba(10,50,65,0.08);
+  --txt-1:#0f2438;
+  --txt-2:#52708a;
+  --txt-3:#8aa0b5;
+  --accent:#00a896;
+  --accent-2:#1565c0;
+  --warn:#c47f16;
+  --danger:#d43439;
+  --ok:#1f9d76;
+  --shadow: 0 8px 28px rgba(10,50,65,.10);
   --radius:14px;
+}
+body.dark-theme{
+  --bg-0:#081520;
+  --bg-1:#0d2030;
+  --bg-2:#102a3d;
+  --bg-3:#0b1f2e;
+  --line:rgba(140,200,210,0.16);
+  --line-soft:rgba(140,200,210,0.08);
+  --txt-1:#e8f4f7;
+  --txt-2:#8db3c2;
+  --txt-3:#5c7e8f;
+  --accent:#19c3d8;
+  --accent-2:#5b93ff;
+  --warn:#f2a93b;
+  --danger:#e5484d;
+  --ok:#2fbf8f;
+  --shadow: 0 8px 28px rgba(0,0,0,.55);
 }
 *{box-sizing:border-box; margin:0; padding:0;}
 body{
   font-family:'Vazirmatn','Segoe UI',Tahoma,sans-serif;
-  background: radial-gradient(1200px 600px at 15% -10%, #0a1826 0%, transparent 60%),
-              radial-gradient(1000px 700px at 110% 10%, #08131e 0%, transparent 55%),
+  background: radial-gradient(1200px 600px at 15% -10%, rgba(0,168,150,0.05) 0%, transparent 60%),
+              radial-gradient(1000px 700px at 110% 10%, rgba(21,101,192,0.05) 0%, transparent 55%),
               var(--bg-0);
   color:var(--txt-1);
   min-height:100vh;
   direction:rtl;
+  transition: background-color .2s ease, color .2s ease;
+}
+body.dark-theme{
+  background: radial-gradient(1200px 600px at 15% -10%, #0a1826 0%, transparent 60%),
+              radial-gradient(1000px 700px at 110% 10%, #08131e 0%, transparent 55%),
+              var(--bg-0);
 }
 ::-webkit-scrollbar{width:9px; height:9px;}
 ::-webkit-scrollbar-track{background:var(--bg-1);}
@@ -101,7 +124,8 @@ body{
 .field input, .field select{width:100%; padding:11px 14px; border-radius:10px; background:var(--bg-3); border:1px solid var(--line); color:var(--txt-1); font-family:inherit; font-size:14px; outline:none; transition:.15s;}
 .field input:focus, .field select:focus{border-color:var(--accent); box-shadow:0 0 0 3px rgba(56,189,248,.15);}
 .btn{display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:11px 18px; border-radius:10px; border:none; cursor:pointer; font-family:inherit; font-size:14px; font-weight:600; transition:.15s;}
-.btn-primary{background:linear-gradient(135deg, var(--accent), #0ea5e9); color:#03151f; width:100%;}
+.btn-primary{background:linear-gradient(135deg, var(--accent), #0ea5e9); color:#fff; width:100%;}
+.btn-sm.btn-primary, .toolbar .btn-primary, .topbar-actions .btn-primary{width:auto;}
 .btn-primary:hover{filter:brightness(1.08); transform:translateY(-1px);}
 .btn-ghost{background:transparent; border:1px solid var(--line); color:var(--txt-2);}
 .btn-ghost:hover{border-color:var(--accent); color:var(--txt-1);}
@@ -120,7 +144,7 @@ body{
 .nav-item{display:flex; align-items:center; gap:10px; padding:11px 14px; border-radius:10px; color:var(--txt-2); cursor:pointer; font-size:13.5px; margin-bottom:3px; transition:.15s; user-select:none;}
 .nav-item .ic{width:20px; text-align:center; font-size:15px;}
 .nav-item:hover{background:var(--bg-2); color:var(--txt-1);}
-.nav-item.active{background:linear-gradient(90deg, rgba(56,189,248,.18), rgba(56,189,248,.02)); color:#fff; border-right:3px solid var(--accent);}
+.nav-item.active{background:linear-gradient(90deg, rgba(56,189,248,.18), rgba(56,189,248,.02)); color:var(--text); font-weight:700; border-right:3px solid var(--accent);}
 .sidebar-foot{padding:14px; border-top:1px solid var(--line);}
 .user-chip{display:flex; align-items:center; gap:10px; padding:8px 10px; background:var(--bg-2); border-radius:10px; margin-bottom:8px;}
 .user-chip .av{width:32px; height:32px; border-radius:8px; background:var(--bg-3); display:flex; align-items:center; justify-content:center; font-size:14px;}
@@ -211,6 +235,7 @@ select.filter-select{padding:10px 12px; border-radius:10px; background:var(--bg-
 .radio-btn.active{border-color:var(--accent); color:var(--txt-1); background:rgba(56,189,248,.1);}
 @media print{.sidebar, .topbar-actions, .toolbar, .no-print{display:none !important;} body{background:#fff; color:#000;} .main{padding:0;}}
 </style>
+<style id="embed-css">html.embedded #themeToggleBtn,html.embedded #logoutBtn,html.embedded #btnLogout,html.embedded .wh-logout,html.embedded button[onclick="doLogout()"],html.embedded #installBtn{display:none!important}</style><script>try{if(window.top!==window)document.documentElement.classList.add("embedded")}catch(e){document.documentElement.classList.add("embedded")}</script>
 </head>
 <body>
 
@@ -248,6 +273,7 @@ select.filter-select{padding:10px 12px; border-radius:10px; background:var(--bg-
       </div>
       <div id="syncIndicator"><span class="dot" id="syncDot"></span><span id="syncText">همگام‌سازی شده</span></div>
       <button class="btn btn-ghost btn-sm install-btn" id="installBtnSidebar" onclick="installApp()" style="width:100%; margin-top:8px;">⬇️ نصب برنامه</button>
+      <button class="btn btn-ghost btn-sm" id="themeToggleBtn" style="width:100%; margin-top:8px;" onclick="toggleTheme()">🌓 حالت روشن/تیره</button>
       <button class="btn btn-ghost btn-sm" style="width:100%; margin-top:10px;" onclick="doLogout()">خروج از سامانه</button>
     </div>
   </aside>
@@ -264,6 +290,27 @@ select.filter-select{padding:10px 12px; border-radius:10px; background:var(--bg-
    Parts Warehouse Management System
    Storage: jsonbin.io (Bin مستقل)
 ===================================================================== */
+
+/* ---------------- THEME (light default / dark option, synced with shell) ---------------- */
+function setTheme(mode, persist){
+  document.body.classList.toggle("dark-theme", mode==="dark");
+  if(persist){ try{ localStorage.setItem("rostampour-theme", mode); }catch(e){} }
+}
+function toggleTheme(){
+  const next = document.body.classList.contains("dark-theme") ? "light" : "dark";
+  setTheme(next, true);
+  try{ window.parent && window.parent!==window && window.parent.postMessage({rostampourTheme:next}, "*"); }catch(e){}
+}
+window.addEventListener("message", (ev)=>{
+  if(ev.data && (ev.data.rostampourTheme==="light" || ev.data.rostampourTheme==="dark")){
+    setTheme(ev.data.rostampourTheme, true);
+  }
+});
+(function(){
+  let saved=null;
+  try{ saved=localStorage.getItem("rostampour-theme"); }catch(e){}
+  if(saved==="dark") setTheme("dark", false);
+})();
 
 /* ---------------- PWA: INSTALL PROMPT & SERVICE WORKER ---------------- */
 let deferredInstallPrompt=null;
@@ -669,7 +716,7 @@ function renderItems(main, canWrite){
   main.innerHTML=`
     <div class="topbar">
       <div><div class="page-title">لیست قطعات و موجودی انبار</div><div class="page-sub">${fmtNum(STATE.data.items.length)} قطعه ثبت‌شده</div></div>
-      <div class="topbar-actions"><button class="btn btn-ghost btn-sm" onclick="exportItemsExcel()">⬇️ خروجی اکسل</button></div>
+      <div class="topbar-actions"><button class="btn btn-primary btn-sm" onclick="exportItems('pdf')">📄 PDF</button> <button class="btn btn-ghost btn-sm" onclick="exportItems('word')">📝 Word</button> <button class="btn btn-ghost btn-sm" onclick="exportItems('excel')">📊 Excel</button></div>
     </div>
     <div class="toolbar">
       <div class="search-box"><input type="text" id="itemSearch" placeholder="جستجو بر اساس نام یا مشخصات فنی قطعه..." oninput="itemsFilter.search=this.value; renderItemsTable()"></div>
@@ -974,14 +1021,15 @@ function renderReports(main){
       <div class="toolbar">
         <select class="filter-select" id="rep_year">${[now[0]-1,now[0],now[0]+1].map(y=>`<option value="${y}" ${y===now[0]?"selected":""}>${y}</option>`).join("")}</select>
         <select class="filter-select" id="rep_month">${JMONTHS.map((m,idx)=>`<option value="${idx+1}" ${idx+1===now[1]?"selected":""}>${m}</option>`).join("")}</select>
-        <button class="btn btn-ghost btn-sm" onclick="exportMonthlyExcel()">⬇️ خروجی اکسل</button>
-        <button class="btn btn-primary btn-sm" onclick="exportMonthlyPdf()">⬇️ خروجی PDF</button>
+        <button class="btn btn-primary btn-sm" onclick="exportMonthly('pdf')">📄 PDF</button>
+        <button class="btn btn-ghost btn-sm" onclick="exportMonthly('word')">📝 Word</button>
+        <button class="btn btn-ghost btn-sm" onclick="exportMonthly('excel')">📊 Excel</button>
       </div>
       <div id="monthlyPreviewWrap" class="table-wrap"></div>
     </div>
     <div class="card">
       <div style="font-weight:700; margin-bottom:14px;">گزارش لحظه‌ای کسری موجودی و نیاز به تامین</div>
-      <button class="btn btn-ghost btn-sm" style="margin-bottom:14px;" onclick="exportShortagePdf()">⬇️ خروجی PDF</button>
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap"><button class="btn btn-primary btn-sm" onclick="exportShortage('pdf')">📄 PDF</button><button class="btn btn-ghost btn-sm" onclick="exportShortage('word')">📝 Word</button><button class="btn btn-ghost btn-sm" onclick="exportShortage('excel')">📊 Excel</button></div>
       <div id="shortagePreviewWrap" class="table-wrap"></div>
     </div>
   `;
@@ -1115,5 +1163,51 @@ function renderActivity(main){
   `;
 }
 </script>
+<script src="report-kit.js"></script>
+<script>
+/* ===== Warehouse reports: PDF / Word / Excel with Persian support and logo (shared Report Kit) ===== */
+async function whRun(kind, rep, base){
+  try{
+    const f = base+"-"+new Date().toISOString().slice(0,10);
+    if(kind==="pdf") await RK.pdf(rep,f); else if(kind==="word") await RK.word(rep,f); else await RK.excel(rep,f);
+    toast(RK.isFa()?"گزارش آماده شد":"Report ready");
+  }catch(e){ console.error(e); toast(RK.isFa()?"خطا در ساخت گزارش؛ اتصال اینترنت را بررسی کنید":"Report failed — check your connection","err"); }
+}
+const WFA = ()=>RK.isFa();
+const W = (fa,en)=>WFA()?fa:en;
+const wd = (v)=>RK.digits(v);
+function exportItems(kind){
+  const items=STATE.data.items.slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),"fa"));
+  if(!items.length){ toast(W("قطعه‌ای ثبت نشده است","No parts recorded"),"err"); return; }
+  const rep={ title:W("لیست قطعات و موجودی انبار","Warehouse parts & stock list"), subtitle:W("انبار قطعات مصرفی","Spare-parts warehouse"),
+    meta:[[W("تعداد قطعات","Parts"), wd(items.length)]],
+    sections:[{ title:W("لیست قطعات","Parts list"), table:{ head:[W("نام قطعه","Part"),W("مشخصات فنی","Specs"),W("گروه","Group"),W("موجودی فعلی","Stock"),W("تعداد ماکزیمم","Max"),W("توضیحات","Notes")],
+      rows:items.map(i=>[i.name,i.specs||"—",groupName(i.groupId),wd(i.currentStock),i.maxStock?wd(i.maxStock):"—",i.notes||"—"]) } }] };
+  whRun(kind,rep,"warehouse-items");
+}
+function exportMonthly(kind){
+  const txs=getMonthlyTx();
+  const jy=document.getElementById("rep_year").value, jm=JMONTHS[document.getElementById("rep_month").value-1];
+  if(!txs.length){ toast(W("تراکنشی برای این بازه یافت نشد","No transactions in this period"),"err"); return; }
+  const tin=txs.filter(t=>t.type==="in"), tout=txs.filter(t=>t.type==="out");
+  const sum=(a)=>a.reduce((s,t)=>s+(Number(t.qty)||0),0);
+  const rep={ title:W("گزارش ماهانه ورود و خروج قطعات","Monthly parts in/out report"), subtitle:jm+" "+wd(jy),
+    meta:[[W("تعداد تراکنش","Transactions"),wd(txs.length)]],
+    sections:[
+      { title:W("خلاصه ماه","Month summary"), kpis:[{label:W("تعداد ورودی","In transactions"),value:wd(tin.length),unit:""},{label:W("جمع ورودی","Total in"),value:wd(sum(tin)),unit:""},{label:W("تعداد خروجی","Out transactions"),value:wd(tout.length),unit:""},{label:W("جمع خروجی","Total out"),value:wd(sum(tout)),unit:""}] },
+      { title:W("جزئیات تراکنش‌ها","Transaction details"), table:{ head:[W("تاریخ","Date"),W("نوع","Type"),W("نام قطعه","Part"),W("گروه","Group"),W("مقدار","Qty"),W("محل مصرف","Place"),W("خارج‌کننده","Taken by"),W("ثبت‌کننده","Logged by")],
+        rows:txs.map(t=>{const it=getItem(t.itemId);return [isoToJalaliStr(t.date),t.type==="in"?W("ورودی","In"):W("خروجی","Out"),it?it.name:"—",it?groupName(it.groupId):"—",(t.type==="in"?"+":"−")+wd(t.qty),t.location||"—",t.takerName||"—",t.user||"—"];}) } }] };
+  whRun(kind,rep,"warehouse-monthly-"+jy+"-"+document.getElementById("rep_month").value);
+}
+function exportShortage(kind){
+  const items=STATE.data.items.filter(i=>i.currentStock<CONFIG.LOW_STOCK_THRESHOLD).map(i=>({...i,needed:Math.max(0,(i.maxStock||0)-i.currentStock)})).sort((a,b)=>a.currentStock-b.currentStock);
+  if(!items.length){ toast(W("در حال حاضر کسری موجودی وجود ندارد","No stock shortages at the moment"),"err"); return; }
+  const rep={ title:W("گزارش کسری موجودی و نیاز به تامین","Stock shortage & supply need report"), subtitle:W("انبار قطعات مصرفی","Spare-parts warehouse"), meta:[[W("تعداد اقلام کسری","Short items"),wd(items.length)]],
+    sections:[{ title:W("اقلام کسری","Short items"), table:{ head:[W("نام قطعه","Part"),W("مشخصات فنی","Specs"),W("گروه","Group"),W("موجودی فعلی","Stock"),W("تعداد ماکزیمم","Max"),W("کسری","Needed")],
+      rows:items.map(i=>[i.name,i.specs||"—",groupName(i.groupId),wd(i.currentStock),i.maxStock?wd(i.maxStock):"—",i.maxStock?wd(i.needed):"—"]) } }] };
+  whRun(kind,rep,"warehouse-shortage");
+}
+</script>
+<script src="i18n-en.js"></script>
 </body>
 </html>
