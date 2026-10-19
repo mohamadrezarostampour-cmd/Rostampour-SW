@@ -72,7 +72,7 @@ const svg = (k, s) => `<svg width="${s || 17}" height="${s || 17}" viewBox="0 0 
    startPlant(spec)
    ========================================================================= */
 export function startPlant(spec) {
-  const fbApp = initializeApp(firebaseConfig, 'plant-' + spec.id);
+  const fbApp = initializeApp(firebaseConfig);
   const auth = getAuth(fbApp);
   const db = getFirestore(fbApp);
   const P = spec.prefix;

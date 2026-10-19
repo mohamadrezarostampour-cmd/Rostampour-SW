@@ -7,7 +7,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-const app = initializeApp({ apiKey:"AIzaSyD3BGGIX2B104SdhML7eoxcvl3CjKGfXw4", authDomain:"rostampour-water-billing.firebaseapp.com", projectId:"rostampour-water-billing", storageBucket:"rostampour-water-billing.firebasestorage.app", messagingSenderId:"790326632020", appId:"1:790326632020:web:91cb2da018fc5e061717c1" }, 'meters');
+const app = initializeApp({ apiKey:"AIzaSyD3BGGIX2B104SdhML7eoxcvl3CjKGfXw4", authDomain:"rostampour-water-billing.firebaseapp.com", projectId:"rostampour-water-billing", storageBucket:"rostampour-water-billing.firebasestorage.app", messagingSenderId:"790326632020", appId:"1:790326632020:web:91cb2da018fc5e061717c1" });
 const auth = getAuth(app), db = getFirestore(app);
 const ADMIN = "rostampour@rostampour-system.local";
 document.documentElement.style.setProperty('--mc', '#7c5cff');
