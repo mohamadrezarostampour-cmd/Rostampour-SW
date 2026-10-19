@@ -131,6 +131,7 @@
     return s; // user data / unknown text stays untouched (never produce half-translated mixes)
   }
   Object.keys(D).forEach(function (k) { DN[norm(k)] = D[k]; });
+  var loadedLang = (function () { try { return localStorage.getItem('rostampour-lang') === 'en' ? 'en' : 'fa'; } catch (e) { return 'fa'; } })();
   function isEn() { try { return localStorage.getItem('rostampour-lang') === 'en'; } catch (e) { return false; } }
   var busy = false;
   function walk(n) {
@@ -158,7 +159,7 @@
   }).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
   window.addEventListener('message', function (e) {
     var d = e.data || {};
-    if (d.rostampourLang) { try { localStorage.setItem('rostampour-lang', d.rostampourLang); } catch (x) { } location.reload(); }
+    if (d.rostampourLang && d.rostampourLang !== loadedLang) { try { localStorage.setItem('rostampour-lang', d.rostampourLang); } catch (x) { } location.reload(); }
   });
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', apply); else apply();
   window.RostampourI18n = { tr: tr, apply: apply };
