@@ -2,13 +2,29 @@
 <html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>کنتوربرداری انشعابات</title><link rel="stylesheet" href="module.css"></head>
 <body><div id="root"></div>
+<script src="role.js"></script>
 <script src="report-kit.js"></script>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, addDoc as _addDoc, updateDoc as _updateDoc, deleteDoc as _deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 const app = initializeApp({ apiKey:"AIzaSyD3BGGIX2B104SdhML7eoxcvl3CjKGfXw4", authDomain:"rostampour-water-billing.firebaseapp.com", projectId:"rostampour-water-billing", storageBucket:"rostampour-water-billing.firebasestorage.app", messagingSenderId:"790326632020", appId:"1:790326632020:web:91cb2da018fc5e061717c1" });
-const auth = getAuth(app), db = getFirestore(app);
+const auth = getAuth(app);
+let db;
+try { db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) }); }   // offline cache + queued writes
+catch (e) { db = getFirestore(app); }
+/* access level (real enforcement = Firestore rules) */
+const roleNow = () => Role.forUser(auth.currentUser);
+const isAdminR = () => roleNow() === 'admin';
+const allowedView = v => { const r = roleNow(); if (r === 'admin') return true; if (r === 'operator') return ['dash', 'reading', 'consumers'].includes(v); if (r === 'viewer') return ['dash', 'consumers'].includes(v); return false; };
+const quick = p => Promise.race([p, new Promise(res => setTimeout(res, 4500))]);     // offline: the write is queued; do not block the UI
+const colName = ref => (ref && ref.path) || '';
+const chk = (ref, kind) => { const r = roleNow(), c = colName(ref).split('/')[0]; if (r === 'admin') return; if (r === 'operator' && ((c === 'readings' && kind === 'add') || (c === 'auditLogs' && kind === 'add'))) return; throw new Error('forbidden'); };
+const addDoc = (ref, data) => { chk(ref, 'add'); return quick(_addDoc(ref, data)); };
+const updateDoc = (ref, data) => { chk(ref, 'upd'); return quick(_updateDoc(ref, data)); };
+const deleteDoc = (ref) => { chk(ref, 'del'); return quick(_deleteDoc(ref)); };
+const PEND = {};
+const postSync = () => { try { parent.postMessage({ rostampourSync: { src: 'meters', pending: Object.values(PEND).some(Boolean) } }, '*'); } catch (e) { } };
 const ADMIN = "rostampour@rostampour-system.local";
 document.documentElement.style.setProperty('--mc', '#7c5cff');
 const getLang = () => { try { return localStorage.getItem('rostampour-lang') || 'fa'; } catch (e) { return 'fa'; } };
@@ -32,7 +48,7 @@ const UI = { jy: todayJ().year, mode: 'monthly', f: {}, charts: {} };
 let unsubs = [];
 const root = document.getElementById('root');
 const toast = m => { const t = document.getElementById('toast'); if (!t) return; t.textContent = m; t.classList.add('show'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 3000); };
-const logAct = async (a, d) => { try { await addDoc(collection(db, 'auditLogs'), { action: a, detail: d || '', user: 'rostampour', at: new Date().toISOString() }); } catch (e) {} };
+const logAct = async (a, d) => { try { await addDoc(collection(db, 'auditLogs'), { action: a, detail: d || '', user: Role.user() || 'rostampour', at: new Date().toISOString() }); } catch (e) {} };
 function modal(title, body, onSave, label) {
   const ov = document.getElementById('overlay'), m = ov.querySelector('.modal');
   m.innerHTML = `<div class="modal-head"><h3>${esc(title)}</h3><div class="close-x" id="x">✕</div></div><div class="modal-body">${body}</div><div class="modal-foot">${onSave ? `<button class="btn btn-primary" id="ok">${label || L('ذخیره','Save')}</button>` : ''}<button class="btn btn-ghost" id="no">${L('انصراف','Cancel')}</button></div>`;
@@ -50,7 +66,7 @@ const fmtJ = r => D(r.date || '');
 /* firestore */
 function attach() {
   unsubs.forEach(u => u()); unsubs = [];
-  ['consumers', 'readings', 'auditLogs'].forEach(n => unsubs.push(onSnapshot(collection(db, n), s => { const a = []; s.forEach(d => a.push({ id: d.id, ...d.data() })); S[n] = a; sched(); }, e => console.error(n, e))));
+  ['consumers', 'readings'].concat(isAdminR() ? ['auditLogs'] : []).forEach(n => unsubs.push(onSnapshot(collection(db, n), s => { const a = []; s.forEach(d => a.push({ id: d.id, ...d.data() })); const pend = !!s.metadata.hasPendingWrites; if (PEND[n] !== pend) { PEND[n] = pend; postSync(); } S[n] = a; sched(); }, e => console.error(n, e))));
 }
 let tm; const sched = () => { clearTimeout(tm); tm = setTimeout(() => S.ready && render(), 80); };
 
@@ -77,17 +93,26 @@ function shell() {
   shownLang = getLang();
   document.documentElement.lang = isFa() ? 'fa' : 'en'; document.documentElement.dir = isFa() ? 'rtl' : 'ltr';
   root.innerHTML = `<div class="app"><aside class="sidebar" id="sb"><div class="brand"><div class="brand-logo"><img src="icon-192.png" alt=""></div><div class="brand-name">${L('کنتوربرداری انشعابات','Meter Reading')}<small>${L('بخش ۳','Section 3')}</small></div></div>
-  <nav class="nav">${NAV.map(n => `<div class="nav-item ${S.view === n[0] ? 'active' : ''}" data-v="${n[0]}"><span style="font-size:16px">${n[1]}</span><span>${L(n[2][0], n[2][1])}</span></div>`).join('')}</nav>
+  <nav class="nav">${NAV.filter(n => allowedView(n[0])).map(n => `<div class="nav-item ${S.view === n[0] ? 'active' : ''}" data-v="${n[0]}"><span style="font-size:16px">${n[1]}</span><span>${L(n[2][0], n[2][1])}</span></div>`).join('')}</nav>
   <div class="sidebar-foot"><span class="dot-live"></span><span>${L('داده‌ها به‌صورت آنلاین ذخیره می‌شود','Data is stored online')}</span></div></aside><div class="scrim" id="sc"></div>
   <div class="main"><div class="topbar"><div style="display:flex;align-items:center;gap:12px"><button class="menu-btn" id="mb">☰</button><div><h1 id="t"></h1><div class="sub" id="s"></div></div></div></div><div class="content" id="c"></div></div></div>
   <div class="overlay" id="overlay"><div class="modal"></div></div><div class="toast" id="toast"></div>`;
-  root.querySelectorAll('.nav-item').forEach(n => n.onclick = () => { S.view = n.dataset.v; closeSb(); root.querySelectorAll('.nav-item').forEach(x => x.classList.toggle('active', x === n)); render(); });
+  root.querySelectorAll('.nav-item').forEach(n => n.onclick = () => { if (!allowedView(n.dataset.v)) return; S.view = n.dataset.v; closeSb(); root.querySelectorAll('.nav-item').forEach(x => x.classList.toggle('active', x === n)); render(); });
   document.getElementById('mb').onclick = () => { sb.classList.add('open'); sc.classList.add('show'); }; document.getElementById('sc').onclick = closeSb;
 }
 const closeSb = () => { const a = document.getElementById('sb'), b = document.getElementById('sc'); a && a.classList.remove('open'); b && b.classList.remove('show'); };
 const title = (t, s) => { document.getElementById('t').textContent = t; document.getElementById('s').textContent = s || ''; };
 function killCharts() { Object.values(UI.charts).forEach(c => { try { c.destroy(); } catch (e) {} }); UI.charts = {}; }
-function render() { killCharts(); ({ dash: vDash, reading: vReading, consumers: vCons, reports: vReports, log: vLog })[S.view](document.getElementById('c')); }
+function lockUI(c) {   // remove management controls for non-admin users
+  if (isAdminR()) return;
+  c.querySelectorAll('.rk-exportbar').forEach(el => el.remove());
+  if (S.view === 'consumers') c.querySelectorAll('#add,[data-e],[data-d]').forEach(el => el.remove());
+  if (S.view === 'reading') c.querySelectorAll('[data-d]').forEach(el => el.remove());
+  const hasAct = !!c.querySelector('.row-actions');
+  c.querySelectorAll('.row-actions').forEach(el => { const td = el.closest('td'); (td || el).remove(); });
+  if (hasAct) c.querySelectorAll('thead tr').forEach(tr => { const th = tr.lastElementChild; if (th && th.tagName === 'TH' && !th.textContent.trim()) th.remove(); });
+}
+function render() { if (!allowedView(S.view)) S.view = 'dash'; killCharts(); ({ dash: vDash, reading: vReading, consumers: vCons, reports: vReports, log: vLog })[S.view](document.getElementById('c')); lockUI(document.getElementById('c')); }
 const dk = () => document.body.classList.contains('dark-theme'), ax = () => dk() ? '#8db3c2' : '#52708a', gr = () => dk() ? 'rgba(255,255,255,.07)' : 'rgba(10,50,65,.08)';
 const PAL = ['#1565c0','#00a896','#ff7a59','#f5a524','#7c5cff','#1f9d76'];
 const cfg = (type, labels, sets) => ({ type, data: { labels, datasets: sets }, options: { responsive: true, maintainAspectRatio: false, interaction: { mode:'index', intersect:false }, plugins: { legend: { labels: { color: ax(), font: { size: 11 } } } }, scales: { x: { ticks: { color: ax(), font: { size: 10 } }, grid: { display: false } }, y: { beginAtZero: true, ticks: { color: ax() }, grid: { color: gr() } } } } });
@@ -173,11 +198,30 @@ function chartSets() { const { rows } = reportData(), lb = rows.map(r => r.b.lab
   { title: L('مصرف به تفکیک گروه','Consumption by group'), type: 'bar', labels: lb, sets: SALES.map((k, i) => ds('bar', gL(k), rows.map(r => +r.a.by[k].toFixed(1)), PAL[i])) },
   { title: L('دبی متوسط ورودی (L/s)','Average inlet flow (L/s)'), type: 'line', labels: lb, sets: [ds('line', L('دبی','Flow'), rows.map(r => r.fl ? +(r.fl * 1000 / 86400).toFixed(3) : null), '#7c5cff')] },
   { title: L('درصد اختلاف تولید و مصرف','Production–consumption gap %'), type: 'line', labels: lb, sets: [ds('line', '%', rows.map(r => r.a.lossPct == null ? null : +r.a.lossPct.toFixed(1)), '#d43439')] }]; }
+
+/* comprehensive daily / monthly report: every reading + consumption by group + meters + log */
+const jstrToISO = s => { const m = String(s || '').match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/); return m ? RK.J.toISO(+m[1], +m[2], +m[3]) : ''; };
+async function buildFull(r) {
+  const inR = iso => RK.J.inRange(iso, r), rs = S.readings.filter(x => inR(jstrToISO(x.date))).sort((a, b) => (a.periodSerial || 0) - (b.periodSerial || 0));
+  const sections = [], tot = rs.reduce((a, x) => a + cons(x), 0), byG = {};
+  rs.forEach(x => { const g = grpOf(x) || '—'; byG[g] = (byG[g] || 0) + cons(x); });
+  sections.push({ title: L('خلاصه', 'Summary'), kpis: [{ label: L('تعداد قرائت', 'Readings'), value: D(rs.length), unit: '' }, { label: L('مجموع مصرف', 'Total consumption'), value: num(tot, 1), unit: 'm³' }, { label: L('تعداد کنتور فعال', 'Active meters'), value: D(S.consumers.filter(c => c.status !== 'inactive').length), unit: '' }, { label: L('کنتور بدون قرائت در بازه', 'Meters not read'), value: D(S.consumers.filter(c => c.status !== 'inactive' && !rs.some(x => x.consumerId === c.id)).length), unit: '' }] });
+  sections.push({ title: L('همه قرائت‌های ثبت‌شده', 'All readings'), table: { head: [L('تاریخ', 'Date'), L('کد', 'Code'), L('کنتور', 'Meter'), L('گروه', 'Group'), L('قبلی', 'Prev'), L('جدید', 'New'), L('مصرف m³', 'Cons. m³'), L('دبی L/s', 'Flow L/s'), L('وضعیت', 'State')], rows: rs.map(x => [D(x.date || ''), x.consumerCode || '', x.consumerName || '', gL(grpOf(x)), num(x.prevReading, 1), num(x.newReading, 1), num(cons(x), 1), x.closed ? '—' : num(flowLs(x), 3), x.closed ? L('بسته/بدون قرائت', 'Closed') : L('قرائت', 'Read')]) } });
+  const gk = Object.keys(byG);
+  sections.push({ title: L('مصرف به تفکیک گروه', 'Consumption by group'), table: { head: [L('گروه', 'Group'), L('مصرف m³', 'Cons. m³')], rows: gk.map(g => [gL(g), num(byG[g], 1)]).concat(gk.length > 1 ? [[L('جمع', 'Total'), num(tot, 1)]] : []) } });
+  const a = agg(rs);
+  sections.push({ title: L('تولید / ورودی در برابر مصرف', 'Production vs. consumption'), kpis: [{ label: L('تولید / ورودی', 'Production / inlet'), value: num(a.buy, 1), unit: 'm³' }, { label: L('مجموع فروش/مصرف', 'Total sales / use'), value: num(a.sales, 1), unit: 'm³' }, { label: L('اتلاف', 'Loss'), value: num(a.loss, 1), unit: 'm³' }, { label: L('درصد اتلاف', 'Loss %'), value: a.lossPct == null ? '—' : num(a.lossPct, 1), unit: '%' }] });
+  const nm = S.consumers.filter(c => c.createdAt && inR(String(c.createdAt).slice(0, 10)));
+  sections.push({ title: L('کنتورهای جدید ثبت‌شده', 'New meters registered'), table: { head: [L('کد', 'Code'), L('نام', 'Name'), L('گروه', 'Group')], rows: nm.map(c => [c.code || '', c.name || '', gL(c.group)]) } });
+  if (isAdminR()) { const lg = S.auditLogs.filter(l => inR(String(l.at || '').slice(0, 10))).sort((x, y) => String(x.at).localeCompare(String(y.at))); sections.push({ title: L('لاگ فعالیت', 'Activity log'), table: { head: [L('زمان', 'Time'), L('کاربر', 'User'), L('عملیات', 'Action'), L('جزئیات', 'Details')], rows: lg.map(l => [D(String(l.at).slice(0, 10)) + ' ' + D(String(l.at).slice(11, 16)), l.user || '', l.action || '', l.detail || '']) } }); }
+  return { title: L('کنتوربرداری انشعابات — ', 'Branch Meter Reading — ') + (r.kind === 'daily' ? L('گزارش جامع روزانه', 'Comprehensive daily report') : L('گزارش جامع ماهانه', 'Comprehensive monthly report')), subtitle: r.label, meta: [[L('بازه', 'Period'), RK.J.str(r.from) + (r.from !== r.to ? ' — ' + RK.J.str(r.to) : '')]], sections };
+}
 function vReports(c) {
   title(L('آمار مصرف، تولید و دبی','Consumption, production & flow'), L('ماهانه و سالانه با نمودار و خروجی PDF / Word / Excel','Monthly & yearly with charts and PDF / Word / Excel export'));
   const ys = new Set([todayJ().year]); S.readings.forEach(r => r.jy && ys.add(r.jy));
-  c.innerHTML = `<div class="card"><div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap"><div class="seg" id="mo">${[['monthly', L('ماهانه','Monthly')], ['yearly', L('سالانه','Yearly')]].map(([k, l]) => `<button class="btn btn-sm ${UI.mode === k ? 'btn-primary' : 'btn-ghost'}" data-m="${k}">${l}</button>`).join('')}</div><div class="field" style="min-width:100px;${UI.mode === 'yearly' ? 'display:none' : ''}"><label>${L('سال','Year')}</label><select id="y">${[...ys].sort((a, b) => b - a).map(y => `<option value="${y}" ${y === UI.jy ? 'selected' : ''}>${D(y)}</option>`).join('')}</select></div><div style="flex:1"></div><div id="ex">${RK.exportBarHTML()}</div></div></div><div id="rb"></div>`;
+  c.innerHTML = `<div id="fullHost"></div><div class="card"><div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap"><div class="seg" id="mo">${[['monthly', L('ماهانه','Monthly')], ['yearly', L('سالانه','Yearly')]].map(([k, l]) => `<button class="btn btn-sm ${UI.mode === k ? 'btn-primary' : 'btn-ghost'}" data-m="${k}">${l}</button>`).join('')}</div><div class="field" style="min-width:100px;${UI.mode === 'yearly' ? 'display:none' : ''}"><label>${L('سال','Year')}</label><select id="y">${[...ys].sort((a, b) => b - a).map(y => `<option value="${y}" ${y === UI.jy ? 'selected' : ''}>${D(y)}</option>`).join('')}</select></div><div style="flex:1"></div><div id="ex">${RK.exportBarHTML()}</div></div></div><div id="rb"></div>`;
   UI.mode = UI.mode === 'daily' ? 'monthly' : UI.mode;
+  RK.fullBar(document.getElementById('fullHost'), buildFull, 'meters-full', toast);
   c.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { UI.mode = b.dataset.m; vReports(c); }); document.getElementById('y').onchange = e => { UI.jy = +e.target.value; vReports(c); };
   const rd = reportData(), cs = chartSets();
   document.getElementById('rb').innerHTML = `<div class="charts-grid">${cs.map((x, i) => `<div class="chart-card"><div class="ct">${esc(x.title)}</div><div class="chart-box"><canvas id="r${i}"></canvas></div></div>`).join('')}</div><div class="card" style="padding:0"><div class="table-wrap" style="border:none;overflow:auto"><table><thead><tr>${rd.head.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rd.tab.map(r => `<tr>${r.map((x, i) => `<td class="${i ? 'cell-mono' : 'cell-strong'}">${esc(x)}</td>`).join('')}</tr>`).join('')}</tbody></table></div></div>`;
@@ -200,6 +244,14 @@ const th = m => document.body.classList.toggle('dark-theme', m === 'dark');
 try { if (localStorage.getItem('rostampour-theme') === 'dark') th('dark'); } catch (e) {}
 addEventListener('message', ev => { const d = ev.data || {}; if (d.rostampourTheme) { th(d.rostampourTheme); try { localStorage.setItem('rostampour-theme', d.rostampourTheme); } catch (e) {} S.ready && render(); } if (d.rostampourLang) { try { localStorage.setItem('rostampour-lang', d.rostampourLang); } catch (e) {} if (d.rostampourLang !== shownLang) { if (S.ready) { shell(); render(); } else noAuth(); } } });
 const noAuth = () => { shownLang = getLang(); root.innerHTML = `<div class="card login-note"><h3>${L('ابتدا وارد سامانه شوید','Please sign in first')}</h3><p style="color:var(--text-muted);font-size:13px;margin:8px 0 16px">${L('این بخش فقط از داخل سامانه‌ی اصلی در دسترس است.','Available from the main application only.')}</p><a class="btn btn-primary" href="index.html" target="_top">${L('صفحه ورود','Sign in')}</a></div>`; };
-onAuthStateChanged(auth, u => { if (u && u.email === ADMIN) { if (!S.ready) { S.ready = true; shell(); attach(); render(); } } else { S.ready = false; unsubs.forEach(x => x()); unsubs = []; noAuth(); } });
+let navTry = 0;
+function applyNav(n) {
+  const v = n && n.view; if (!v) return;
+  const ok = () => { if (S.ready && ['dash', 'reading', 'consumers', 'reports', 'log'].includes(v)) { if (allowedView(v)) { S.view = v; shell(); render(); } return true; } return false; };
+  if (ok()) return; clearTimeout(applyNav._t); navTry = 0;
+  (function retry() { if (ok() || ++navTry > 40) return; applyNav._t = setTimeout(retry, 300); })();
+}
+addEventListener('message', ev => { const d = ev.data || {}; if (d.rostampourNav) applyNav(d.rostampourNav); });
+onAuthStateChanged(auth, u => { if (u && Role.forUser(u)) { if (!S.ready) { S.ready = true; shell(); attach(); render(); try { parent.postMessage({ rostampourReady: 'meters' }, '*'); } catch (e) { } } } else { S.ready = false; unsubs.forEach(x => x()); unsubs = []; noAuth(); } });
 noAuth();
 </script></body></html>

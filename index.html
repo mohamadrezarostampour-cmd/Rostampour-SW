@@ -18,9 +18,13 @@ if ('serviceWorker' in navigator) {
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
 <title>Rostampour | Integrated Water Systems</title>
+<script src="role.js"></script>
+<script src="report-kit.js"></script>
+<script src="plant-specs.js"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import * as FS from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyD3BGGIX2B104SdhML7eoxcvl3CjKGfXw4",
@@ -30,22 +34,51 @@ if ('serviceWorker' in navigator) {
     messagingSenderId: "790326632020",
     appId: "1:790326632020:web:91cb2da018fc5e061717c1"
   };
-  const ADMIN_EMAIL = "rostampour@rostampour-system.local";
-  const fbApp = initializeApp(firebaseConfig);
+  const ADMIN_EMAIL = Role.ADMIN_EMAIL;
+  const fbApp = initializeApp(firebaseConfig);   // default app: shared auth session with all sections
   const fbAuth = getAuth(fbApp);
+  let db;
+  try {   // offline cache: reads work without internet, writes are queued and synced later
+    db = FS.initializeFirestore(fbApp, { localCache: FS.persistentLocalCache({ tabManager: FS.persistentMultipleTabManager() }) });
+  } catch (e) { console.warn('persistence unavailable', e); db = FS.getFirestore(fbApp); }
 
+  window.ShellFB = { app: fbApp, auth: fbAuth, db, fs: FS, config: firebaseConfig, createUserWithEmailAndPassword, signOut };
+
+  let loginProblem = '';
   window.ShellAuth = {
     async login(username, pass){
-      if(username !== "rostampour") throw new Error("invalid-username");
-      await signInWithEmailAndPassword(fbAuth, ADMIN_EMAIL, pass);
+      const u = String(username || '').trim().toLowerCase();
+      if(!/^[a-z0-9._-]{2,32}$/.test(u)) throw new Error('invalid-username');
+      loginProblem = '';
+      await signInWithEmailAndPassword(fbAuth, Role.emailOf(u), pass);
     },
-    logout(){ return signOut(fbAuth); }
+    logout(){ return signOut(fbAuth); },
+    problem(){ return loginProblem; }
   };
 
-  onAuthStateChanged(fbAuth, (user) => {
-    const ok = !!user && user.email === ADMIN_EMAIL;
-    window.dispatchEvent(new CustomEvent("shell-auth-state", { detail: { user: ok ? user : null } }));
-    if(user && !ok){ signOut(fbAuth); } // only the single admin account may use the app
+  function announce(user, role, profile){
+    window.dispatchEvent(new CustomEvent("shell-auth-state", { detail: { user, role: role || null, profile: profile || null } }));
+  }
+  onAuthStateChanged(fbAuth, async (user) => {
+    if(!user){ Role.clear(); announce(null); return; }
+    if(user.email === ADMIN_EMAIL){ Role.set('admin', 'rostampour'); announce(user, 'admin', { username: 'rostampour', displayName: 'مدیر سامانه' }); return; }
+    const uname = String(user.email || '').split('@')[0];
+    try {
+      const snap = await FS.getDoc(FS.doc(db, 'app_users', uname));
+      const d = snap.exists() ? snap.data() : null;
+      if(d && d.active !== false && (d.role === 'operator' || d.role === 'viewer')){
+        Role.set(d.role, uname); announce(user, d.role, Object.assign({ username: uname }, d)); return;
+      }
+      loginProblem = 'disabled';
+    } catch(e){
+      console.error('profile load failed', e);
+      // offline with a remembered role: let the user continue with the cached role
+      if(!navigator.onLine && Role.get() && Role.user() === uname){ announce(user, Role.get(), { username: uname }); return; }
+      loginProblem = 'profile';
+    }
+    Role.clear();
+    announce(null);
+    try { await signOut(fbAuth); } catch(e){}
   });
 </script>
 <style>
@@ -162,7 +195,58 @@ button{font-family:inherit;}
 .spinner{width:34px; height:34px; border-radius:50%; border:3px solid var(--border-strong); border-top-color:var(--teal); animation:spin .8s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg);}}
 
+/* ---------- tools: badges, panels, modals ---------- */
+.tb-btn{position:relative;}
+.tb-badge{position:absolute; top:-5px; inset-inline-end:-5px; min-width:17px; height:17px; padding:0 4px; border-radius:9px; background:var(--red); color:#fff; font-size:10px; font-weight:800; display:none; align-items:center; justify-content:center; line-height:1;}
+.tb-badge.show{display:inline-flex;}
+.user-chip{font-size:11.5px; font-weight:700; padding:5px 10px; border-radius:20px; background:rgba(255,255,255,0.14); border:1px solid rgba(255,255,255,0.2); white-space:nowrap; max-width:170px; overflow:hidden; text-overflow:ellipsis;}
+.sync-chip{font-size:11px; font-weight:700; padding:4px 9px; border-radius:20px; display:none; white-space:nowrap;}
+.sync-chip.off{display:inline-flex; background:rgba(245,165,36,0.25); border:1px solid rgba(245,165,36,0.6);}
+.sync-chip.pend{display:inline-flex; background:rgba(124,92,255,0.28); border:1px solid rgba(124,92,255,0.6);}
+.panel{position:fixed; top:64px; inset-inline-end:12px; width:min(410px,calc(100vw - 24px)); max-height:min(72vh,620px); background:var(--panel); color:var(--text); border:1px solid var(--border-strong); border-radius:16px; box-shadow:0 22px 60px rgba(8,30,50,0.35); z-index:60; display:none; flex-direction:column; overflow:hidden;}
+.panel.show{display:flex;}
+.panel-head{padding:12px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; font-weight:800; font-size:14px;}
+.panel-head .sp{flex:1;}
+.panel-body{overflow-y:auto; padding:6px;}
+.al-item{display:flex; gap:10px; padding:10px; border-radius:10px; cursor:pointer; align-items:flex-start; border:1px solid transparent;}
+.al-item:hover{background:var(--panel-2); border-color:var(--border);}
+.al-dot{width:10px; height:10px; border-radius:50%; margin-top:5px; flex-shrink:0; background:var(--amber);}
+.al-dot.red{background:var(--red);} .al-dot.info{background:var(--blue);}
+.al-txt{font-size:12.5px; line-height:1.8;} .al-sec{font-size:10.5px; color:var(--text-dim);}
+.al-empty{padding:26px 10px; text-align:center; color:var(--text-muted); font-size:13px;}
+.tool-overlay{position:fixed; inset:0; background:rgba(5,20,32,0.55); z-index:80; display:none; align-items:center; justify-content:center; padding:14px;}
+.tool-overlay.show{display:flex;}
+.tool-modal{background:var(--panel); color:var(--text); width:100%; max-width:640px; max-height:92vh; border-radius:18px; border:1px solid var(--border-strong); display:flex; flex-direction:column; overflow:hidden; box-shadow:0 30px 80px rgba(0,0,0,0.4);}
+.tool-modal.wide{max-width:820px;}
+.tool-head{padding:14px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; font-weight:800; font-size:15px;}
+.tool-head .sp{flex:1;}
+.tool-x{cursor:pointer; width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; background:var(--panel-2);}
+.tool-body{padding:16px 18px; overflow-y:auto; font-size:13px; line-height:1.9;}
+.tool-foot{padding:12px 18px; border-top:1px solid var(--border); display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;}
+.tool-body h4{font-size:13px; margin:14px 0 6px; color:var(--teal);}
+.tool-body .row{display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-bottom:10px;}
+.tool-body .row > *{flex:1; min-width:130px;}
+.tool-body label{display:block; font-size:12px; color:var(--text-muted); margin-bottom:4px;}
+.tool-body input[type=text],.tool-body input[type=password],.tool-body input[type=number],.tool-body select{width:100%; padding:9px 10px; border-radius:9px; border:1px solid var(--border-strong); background:var(--panel-2); color:var(--text); font-family:inherit; font-size:13px;}
+.tool-body table{width:100%; border-collapse:collapse; font-size:12.5px;}
+.tool-body th,.tool-body td{padding:7px 8px; border-bottom:1px solid var(--border); text-align:start;}
+.tool-body th{color:var(--text-muted); font-weight:700; font-size:11.5px;}
+.btn.sm{padding:6px 11px; font-size:12px;}
+.btn.danger{border-color:rgba(212,52,57,0.5); color:var(--red);}
+.btn[disabled]{opacity:.5; cursor:not-allowed;}
+.tag{display:inline-block; padding:2px 9px; border-radius:20px; font-size:11px; font-weight:700; background:var(--panel-2); border:1px solid var(--border);}
+.tag.ok{color:#1f9d76;} .tag.off{color:var(--red);}
+.hint{font-size:11.5px; color:var(--text-muted); line-height:1.9; background:var(--panel-2); border:1px dashed var(--border-strong); border-radius:10px; padding:8px 11px; margin:8px 0;}
+.srch-in{width:100%; padding:12px 14px; font-size:15px; border-radius:12px; border:1px solid var(--border-strong); background:var(--panel-2); color:var(--text); font-family:inherit;}
+.srch-grp{font-size:11px; font-weight:800; color:var(--teal); margin:12px 0 4px;}
+.srch-hit{padding:8px 10px; border-radius:9px; cursor:pointer; display:flex; justify-content:space-between; gap:10px; border:1px solid transparent;}
+.srch-hit:hover{background:var(--panel-2); border-color:var(--border);}
+.srch-hit small{color:var(--text-muted);}
+.tool-toast{position:fixed; bottom:20px; inset-inline-start:50%; transform:translateX(-50%); background:#0b2a43; color:#fff; padding:10px 18px; border-radius:12px; font-size:13px; z-index:99; display:none; max-width:90vw; box-shadow:0 10px 30px rgba(0,0,0,0.35);}
+.tool-toast.show{display:block;}
+.progress{height:8px; border-radius:6px; background:var(--panel-2); overflow:hidden; margin:8px 0;} .progress > i{display:block; height:100%; width:0; background:linear-gradient(90deg,var(--teal),var(--blue)); transition:width .2s;}
 @media (max-width:760px){
+  .user-chip{display:none;}
   .menu-toggle{display:inline-flex;}
   .topbar img.banner{height:34px;}
   .topbar .section-title{display:none;}
@@ -197,6 +281,11 @@ button{font-family:inherit;}
     <img class="banner" src="banner-logo.png" alt="Rostampour Engineering Co.">
     <div class="section-title" id="sectionTitle"></div>
     <div class="spacer"></div>
+    <span class="sync-chip" id="syncChip"></span>
+    <span class="user-chip" id="userChip"></span>
+    <button class="tb-btn" id="searchBtn" type="button" title="جستجو" aria-label="search">🔍</button>
+    <button class="tb-btn" id="bellBtn" type="button" title="هشدارها" aria-label="alerts">🔔<span class="tb-badge" id="bellBadge"></span></button>
+    <button class="tb-btn" id="toolsBtn" type="button" title="مدیریت" aria-label="admin" style="display:none">⚙</button>
     <button class="tb-btn" id="langBtn" type="button">EN</button>
     <button class="tb-btn" id="themeBtn" type="button">🌓</button>
     <button class="tb-btn logout" id="logoutBtn" type="button" data-i18n="logout">خروج</button>
@@ -206,6 +295,11 @@ button{font-family:inherit;}
     <main class="mode-content" id="modeContent"></main>
   </div>
 </div>
+
+<div class="panel" id="alertPanel"></div>
+<div class="panel" id="toolsPanel"></div>
+<div class="tool-overlay" id="toolOverlay"><div class="tool-modal" id="toolModal"></div></div>
+<div class="tool-toast" id="toolToast"></div>
 
 <script>
 /* ---------------- sections ---------------- */
@@ -221,13 +315,16 @@ const MODES = [
   { id:'desal',    src:'desal.html',     color:'#ff7a59', fa:'کارخانه آب‌شیرین‌کن ۱', en:'Desalination Plant 1',
     icon:'<path d="M4 18h16M6 18V8h5v10M13 18v-6h5v6M8.5 5.5c0-1 1-1.5 1-2.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" fill="none"/>' }
 ];
+window.MODES = MODES;
 const I18N = {
   fa:{ loginTitle:'ورود به سامانه', loginSub:'سامانه جامع آب و فاضلاب رستم‌پور', username:'نام کاربری', password:'رمز عبور',
        loginBtn:'ورود به سامانه', credit:'طراحی و توسعه‌دهنده: محمدرضا رستم‌پور', logout:'خروج',
-       bad:'نام کاربری یا رمز عبور اشتباه است.', loading:'در حال بارگذاری...' },
+       bad:'نام کاربری یا رمز عبور اشتباه است.', loading:'در حال بارگذاری...',
+       disabled:'این حساب فعال نیست یا برای آن سطح دسترسی تعریف نشده است. با مدیر سامانه تماس بگیرید.', profile:'دریافت مشخصات کاربر ناموفق بود؛ اتصال اینترنت را بررسی کنید.' },
   en:{ loginTitle:'Sign in', loginSub:'Rostampour Integrated Water & Wastewater System', username:'Username', password:'Password',
        loginBtn:'Sign in', credit:'Designed & developed by Mohammad Reza Rostampour', logout:'Logout',
-       bad:'Wrong username or password.', loading:'Loading...' }
+       bad:'Wrong username or password.', loading:'Loading...',
+       disabled:'This account is inactive or has no access level. Contact the administrator.', profile:'Could not load the user profile — check your connection.' }
 };
 
 /* ---------------- language & theme (shared with modules) ---------------- */
@@ -258,6 +355,7 @@ function setLang(l){
   buildRail();
   updateTitle();
   broadcast();
+  try { if (window.ShellTools) window.ShellTools.onLang(); } catch(e){}
 }
 (function initPrefs(){
   try { if (localStorage.getItem('rostampour-theme') === 'dark') document.body.classList.add('dark-theme'); } catch(e){}
@@ -309,9 +407,38 @@ function activateMode(id){
   updateTitle();
 }
 
+/* ---------------- navigation from alerts / search ---------------- */
+const pendingNav = {};
+function sendNav(id){
+  const w = document.getElementById('wrap-' + id), f = w && w.querySelector('iframe');
+  if (!f || !pendingNav[id]) return;
+  try { f.contentWindow.postMessage({ rostampourNav: pendingNav[id] }, '*'); } catch(e){}
+}
+function navigateTo(modeId, view, q){
+  if (!MODES.find(m => m.id === modeId)) return;
+  pendingNav[modeId] = { view: view || '', q: q || '', t: Date.now() };
+  activateMode(modeId);
+  document.getElementById('modeRail').classList.remove('open');
+  sendNav(modeId);
+}
+window.navigateTo = navigateTo;
+window.getLang = () => lang;
+/* modules report their sync state (offline queue) */
+const syncState = {};
+function refreshSyncChip(){
+  const chip = document.getElementById('syncChip');
+  const pend = Object.values(syncState).some(Boolean);
+  if (!navigator.onLine) { chip.className = 'sync-chip off'; chip.textContent = lang === 'fa' ? 'آفلاین' + (pend ? ' · تغییرات در صف' : '') : 'Offline' + (pend ? ' · changes queued' : ''); }
+  else if (pend) { chip.className = 'sync-chip pend'; chip.textContent = lang === 'fa' ? 'در حال همگام‌سازی…' : 'Syncing…'; }
+  else { chip.className = 'sync-chip'; chip.textContent = ''; }
+}
+window.addEventListener('online', refreshSyncChip); window.addEventListener('offline', refreshSyncChip);
+
 /* ---------------- messages from modules (they may toggle theme/lang themselves) ---------------- */
 window.addEventListener('message', ev => {
   const d = ev.data || {};
+  if (d.rostampourSync) { syncState[d.rostampourSync.src || '?'] = !!d.rostampourSync.pending; refreshSyncChip(); }
+  if (d.rostampourReady) { sendNav(d.rostampourReady); }
   if (d.rostampourTheme === 'light' || d.rostampourTheme === 'dark') {
     document.body.classList.toggle('dark-theme', d.rostampourTheme === 'dark');
     broadcast();
@@ -332,6 +459,9 @@ document.getElementById('menuToggle').addEventListener('click', () => document.g
 
 document.getElementById('logoutBtn').addEventListener('click', async () => {
   Object.keys(loaded).forEach(k => delete loaded[k]);
+  Object.keys(pendingNav).forEach(k => delete pendingNav[k]);
+  Object.keys(syncState).forEach(k => delete syncState[k]);
+  try { if (window.ShellTools) window.ShellTools.stop(); } catch(e){}
   buildFrames();
   await window.ShellAuth.logout();
 });
@@ -352,18 +482,26 @@ document.getElementById('loginBtn').addEventListener('click', attemptLogin);
 ['loginUser','loginPass'].forEach(id => document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter') attemptLogin(); }));
 
 window.addEventListener('shell-auth-state', ev => {
+  window.__lastAuth = ev.detail;
   if (ev.detail.user) {
+    const rl = ev.detail.role;
+    const nm = rl === 'admin' ? '' : (ev.detail.profile && (ev.detail.profile.displayName || ev.detail.profile.username) || '');
+    document.getElementById('userChip').textContent = (nm ? nm + ' · ' : '') + Role.label(rl, lang === 'fa');
+    document.getElementById('toolsBtn').style.display = rl === 'admin' ? '' : 'none';
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('shell').classList.add('show');
     if (!loaded[currentMode]) activateMode(currentMode);
   } else {
     document.getElementById('shell').classList.remove('show');
     document.getElementById('loginScreen').style.display = 'flex';
+    const pr = window.ShellAuth && window.ShellAuth.problem && window.ShellAuth.problem();
+    if (pr) { document.getElementById('loginError').textContent = T(pr); }
   }
 });
 
 buildFrames();
 setLang(lang);
 </script>
+<script type="module" src="shell-tools.js"></script>
 </body>
 </html>

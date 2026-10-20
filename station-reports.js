@@ -204,11 +204,50 @@
     };
   }
 
+
+  /* ---------- comprehensive daily / monthly report ---------- */
+  async function buildFull(r) {
+    const inR = (d) => RK.J.inRange(d, r), eqBy = {}; state.equipment.forEach(e => eqBy[e.id] = e);
+    const n0 = (v) => RK.num(v, 0);
+    const tr = state.tankReadings.filter(x => inR(String(x.datetime).slice(0, 10))).sort((a, b) => String(a.datetime).localeCompare(String(b.datetime)));
+    const pp = state.plantProd.filter(x => inR(x.date)), pu = state.pumpLoad.filter(x => inR(x.date));
+    const sum = (a) => a.reduce((t, x) => t + (Number(x.volume) || 0), 0);
+    const sections = [{ title: L('خلاصه', 'Summary'), kpis: [
+      { label: L('قرائت‌های مخازن', 'Tank readings'), value: D(tr.length), unit: '' },
+      { label: L('مجموع تولید کارخانه‌ها', 'Plants production'), value: n0(sum(pp)), unit: 'm³' },
+      { label: L('مجموع پمپاژ و بارگیری', 'Pumping & loading'), value: n0(sum(pu)), unit: 'm³' },
+      { label: L('تعمیرات ثبت‌شده', 'Repairs logged'), value: D(state.cm.filter(c => inR(c.date)).length), unit: '' }] }];
+    // tanks: every reading
+    sections.push({ title: L('قرائت مخازن آب (همه قرائت‌ها)', 'Water tank readings (all)'), table: { head: [L('تاریخ', 'Date'), L('ساعت', 'Time'), L('مخزن', 'Tank'), L('حجم m³', 'Volume m³'), L('درصد پری', 'Fill %')], rows: tr.map(x => { const m = TANKS_META[x.tankKey] || { label: x.tankKey, capacity: 0 }; return [jDate(String(x.datetime).slice(0, 10)), D(String(x.datetime).slice(11, 16)), m.label, n0(x.volume), m.capacity ? D(Math.round(Number(x.volume) / m.capacity * 100)) + '%' : '—']; }) } });
+    if (r.kind === 'monthly') {
+      const rows = []; Object.keys(TANKS_META).forEach(k => r.days.forEach(d => { const rs = tr.filter(x => x.tankKey === k && String(x.datetime).slice(0, 10) === d); if (!rs.length) return; const st = RK.stats(rs.map(x => Number(x.volume))); rows.push([jDate(d), TANKS_META[k].label, D(rs.length), n0(st.min), n0(st.avg), n0(st.max), n0(rs[rs.length - 1].volume)]); }));
+      sections.push({ title: L('خلاصه روزانه مخازن', 'Daily tank summary'), table: { head: [L('تاریخ', 'Date'), L('مخزن', 'Tank'), L('تعداد', 'N'), L('کمینه', 'Min'), L('میانگین', 'Avg'), L('بیشینه', 'Max'), L('آخرین', 'Last')], rows } });
+    }
+    const pivot = (title, list, keyf, meta) => {
+      const keys = Object.keys(meta);
+      const rows = r.days.map(d => { const rs = list.filter(x => x.date === d); if (!rs.length) return null; const vals = keys.map(k => sum(rs.filter(x => x[keyf] === k))); return [jDate(d), ...vals.map(n0), n0(vals.reduce((a, b) => a + b, 0))]; }).filter(Boolean);
+      if (rows.length > 1) { const tot = keys.map(k => sum(list.filter(x => x[keyf] === k))); rows.push([L('مجموع', 'Total'), ...tot.map(n0), n0(tot.reduce((a, b) => a + b, 0))]); }
+      sections.push({ title, table: { head: [L('تاریخ', 'Date'), ...keys.map(k => meta[k]), L('جمع روز', 'Day total')], rows } });
+    };
+    pivot(L('تولید کارخانه‌ها (m³)', 'Plants production (m³)'), pp, 'plant', PLANTS_META);
+    pivot(L('پمپاژ اصلی و بارگیری تانکر (m³)', 'Main pumping & tanker loading (m³)'), pu, 'type', PUMP_META);
+    const cms = state.cm.filter(c => inR(c.date)).sort((a, b) => a.date.localeCompare(b.date));
+    sections.push({ title: L('تعمیرات (CM) ثبت‌شده', 'Repairs (CM) logged'), table: { head: [L('تاریخ', 'Date'), L('تجهیز', 'Equipment'), L('شرح مشکل', 'Issue'), L('اقدام', 'Action'), L('تکنسین', 'Technician'), L('وضعیت', 'Status')], rows: cms.map(c => [jDate(c.date), (eqBy[c.equipmentId] || {}).name || '—', c.issue || '', c.action || '', c.technician || '', c.status === 'closed' ? L('بسته‌شده', 'Closed') : L('باز', 'Open')]) } });
+    const pmRows = []; state.pm.forEach(p => { const h = new Set(Array.isArray(p.history) ? p.history : []); if (p.lastDone) h.add(p.lastDone); [...h].filter(inR).sort().forEach(d => pmRows.push([jDate(d), (eqBy[p.equipmentId] || {}).name || '—', p.title || '', D(p.freqDays) + ' ' + L('روز', 'd')])); });
+    sections.push({ title: L('بازدیدهای دوره‌ای (PM) انجام‌شده', 'Inspections (PM) performed'), table: { head: [L('تاریخ', 'Date'), L('تجهیز', 'Equipment'), L('بازدید', 'Inspection'), L('تناوب', 'Interval')], rows: pmRows } });
+    if (typeof currentRole !== 'undefined' && currentRole === 'admin') {
+      const lg = state.activityLog.filter(l => inR(String(l.at || '').slice(0, 10))).sort((a, b) => String(a.at).localeCompare(String(b.at)));
+      sections.push({ title: L('لاگ فعالیت کاربران', 'User activity log'), table: { head: [L('تاریخ و ساعت', 'Date & time'), L('کاربر', 'User'), L('عملیات', 'Action'), L('جزئیات', 'Details')], rows: lg.map(l => [jDate(String(l.at).slice(0, 10)) + ' ' + D(String(l.at).slice(11, 16)), l.username || '', l.action || '', l.detail || '']) } });
+    }
+    return { title: L('ایستگاه توزیع آب پارس — ', 'Pars Water Distribution Station — ') + (r.kind === 'daily' ? L('گزارش جامع روزانه', 'Comprehensive daily report') : L('گزارش جامع ماهانه', 'Comprehensive monthly report')), subtitle: r.label, meta: [[L('بازه', 'Period'), jDate(r.from) + (r.from !== r.to ? ' — ' + jDate(r.to) : '')]], sections };
+  }
+
   const BUILDERS = { tanks: buildTanks, plants: buildPlants, pumping: buildPumping, maint: buildMaintenance };
 
   /* ---------- UI ---------- */
   function html() {
     return `<div data-i18n-skip="1" id="anRoot">
+      <div id="fullHost"></div>
       <div class="card" style="margin-bottom:16px;">
         <div class="panel-title"><div><h3>${L('تحلیل و گزارش‌های جامع ایستگاه', 'Station analytics & comprehensive reports')}</h3>
           <div class="sub">${L('آمار روزانه، ماهانه و سالانه با نمودار، جدول تفصیلی و خروجی PDF / Word / Excel', 'Daily, monthly & yearly statistics with charts, detailed tables and PDF / Word / Excel export')}</div></div></div>
@@ -308,15 +347,17 @@
     if (!anchor) return;
     const v = document.createElement('div'); v.className = 'view'; v.id = 'view-analytics'; v.innerHTML = html();
     anchor.parentNode.insertBefore(v, anchor);
+    try { RK.fullBar(v.querySelector('#fullHost'), buildFull, 'station-full', (m) => showToast(m)); } catch (e) { console.error(e); }
     // nav item (before annual report)
     const navReport = document.querySelector('.nav-item[data-view="report"]');
-    const item = document.createElement('div'); item.className = 'nav-item'; item.dataset.view = 'analytics';
+    const item = document.createElement('div'); item.className = 'nav-item admin-only'; item.dataset.view = 'analytics';
     item.innerHTML = `<svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg> <span id="anNavLabel">${L('تحلیل و آمار جامع', 'Analytics & statistics')}</span>`;
     item.addEventListener('click', () => switchView('analytics'));
     navReport.parentNode.insertBefore(item, navReport);
     VIEW_META.analytics = { title: L('تحلیل و آمار جامع', 'Analytics & statistics'), sub: L('گزارش‌های روزانه، ماهانه و سالانه مخازن، تولید، پمپاژ و تعمیرات', 'Daily, monthly & yearly reports: tanks, production, pumping and maintenance') };
     const orig = window.switchView;
     window.switchView = function (view) {
+      if (view === 'analytics' && typeof currentRole !== 'undefined' && currentRole !== 'admin') { try { showToast('این بخش فقط برای مدیر سامانه است'); } catch (e) { } return; }
       orig(view);
       if (view === 'analytics') {
         VIEW_META.analytics.title = L('تحلیل و آمار جامع', 'Analytics & statistics');

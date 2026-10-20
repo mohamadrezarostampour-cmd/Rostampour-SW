@@ -8,7 +8,7 @@
    ========================================================================= */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import { getFirestore, collection, doc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, collection, doc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyD3BGGIX2B104SdhML7eoxcvl3CjKGfXw4",
@@ -74,10 +74,13 @@ const svg = (k, s) => `<svg width="${s || 17}" height="${s || 17}" viewBox="0 0 
 export function startPlant(spec) {
   const fbApp = initializeApp(firebaseConfig);
   const auth = getAuth(fbApp);
-  const db = getFirestore(fbApp);
+  let db;
+  try { db = initializeFirestore(fbApp, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) }); }   // offline cache + queued writes
+  catch (e) { db = getFirestore(fbApp); }
   const P = spec.prefix;
   const COLS = ['daily', 'equipment', 'pm', 'cm', 'log'].concat(spec.workOrders ? ['wo'] : []);
-  const S = { daily: [], equipment: [], pm: [], cm: [], wo: [], log: [], view: 'dashboard', ready: false, online: true };
+  const S = { daily: [], equipment: [], pm: [], cm: [], wo: [], log: [], view: 'dashboard', ready: false, online: true, alerts: {} };
+  const PEND = {};
   const UI = { charts: {}, an: { scope: null, mode: 'monthly', jy: curJY(), jm: isoToJ(todayISO()).month }, search: {}, filters: {} };
   let unsubs = [];
 
@@ -86,10 +89,25 @@ export function startPlant(spec) {
 
   /* ---------------- persistence ---------------- */
   const colRef = (n) => collection(db, P + n);
-  const fbAdd = (n, data) => addDoc(colRef(n), JSON.parse(JSON.stringify(data)));
-  const fbSet = (n, id, data) => setDoc(doc(db, P + n, id), JSON.parse(JSON.stringify(data)), { merge: true });
-  const fbUpd = (n, id, data) => updateDoc(doc(db, P + n, id), JSON.parse(JSON.stringify(data)));
-  const fbDel = (n, id) => deleteDoc(doc(db, P + n, id));
+  /* ---- access level (the real enforcement is in the Firestore rules) ---- */
+  const roleNow = () => (window.Role ? window.Role.forUser(auth.currentUser) : null);
+  const isAdminR = () => roleNow() === 'admin';
+  const canDailyR = () => { const r = roleNow(); return r === 'admin' || r === 'operator'; };
+  const allowedView = (v) => { const r = roleNow(); if (r === 'admin') return true; if (r === 'operator') return ['dashboard', 'entry', 'equipment', 'pm', 'cm', 'wo'].includes(v); if (r === 'viewer') return ['dashboard', 'equipment', 'pm', 'cm', 'wo'].includes(v); return false; };
+  const guard = (n, kind) => {
+    const r = roleNow();
+    if (r === 'admin') return;
+    if (r === 'operator' && ((n === 'daily' && kind !== 'del') || (n === 'log' && kind === 'add'))) return;
+    throw new Error('forbidden');
+  };
+  /* offline: Firestore applies the write locally at once and syncs later, but the promise only resolves on server
+     acknowledgement — do not keep the UI waiting forever */
+  const quick = (p) => Promise.race([p, new Promise((res) => setTimeout(res, 4500))]);
+  const fbAdd = (n, data) => { guard(n, 'add'); return quick(addDoc(colRef(n), JSON.parse(JSON.stringify(data)))); };
+  const fbSet = (n, id, data) => { guard(n, 'set'); return quick(setDoc(doc(db, P + n, id), JSON.parse(JSON.stringify(data)), { merge: true })); };
+  const fbUpd = (n, id, data) => { guard(n, 'upd'); return quick(updateDoc(doc(db, P + n, id), JSON.parse(JSON.stringify(data)))); };
+  const fbDel = (n, id) => { guard(n, 'del'); return quick(deleteDoc(doc(db, P + n, id))); };
+  const postSync = () => { try { parent.postMessage({ rostampourSync: { src: spec.id, pending: Object.values(PEND).some(Boolean) } }, '*'); } catch (e) { } };
   let renderTimer = null;
   const scheduleRender = () => { clearTimeout(renderTimer); renderTimer = setTimeout(() => { if (S.ready) renderCurrent(); }, 80); };
   function attach() {
@@ -97,15 +115,18 @@ export function startPlant(spec) {
     COLS.forEach(n => {
       unsubs.push(onSnapshot(colRef(n), (snap) => {
         const arr = []; snap.forEach(d => arr.push(Object.assign({ id: d.id }, d.data())));
+        const pend = !!snap.metadata.hasPendingWrites; if (PEND[n] !== pend) { PEND[n] = pend; postSync(); }
         S[n] = arr; S.online = true; setStatus(); scheduleRender();
       }, (err) => { console.error('snapshot', n, err); S.online = false; setStatus(); }));
     });
+    unsubs.push(onSnapshot(doc(db, 'settings', 'alerts'), (s) => { S.alerts = s.exists() ? s.data() : {}; }, () => { }));
   }
   function setStatus() {
     const dot = document.getElementById('stDot'), tx = document.getElementById('stTxt');
     if (!dot) return;
-    dot.className = 'dot-live' + (S.online ? '' : ' off');
-    tx.textContent = S.online ? L('داده‌ها به‌صورت آنلاین ذخیره می‌شود', 'Data is stored online') : L('اتصال به حافظه آنلاین برقرار نیست', 'Online storage not reachable');
+    const pend = Object.values(PEND).some(Boolean);
+    dot.className = 'dot-live' + (S.online && !pend && navigator.onLine ? '' : ' off');
+    tx.textContent = !navigator.onLine ? L('آفلاین — تغییرات در صف همگام‌سازی', 'Offline — changes are queued') : pend ? L('در حال همگام‌سازی…', 'Syncing…') : S.online ? L('داده‌ها به‌صورت آنلاین ذخیره می‌شود', 'Data is stored online') : L('اتصال به حافظه آنلاین برقرار نیست', 'Online storage not reachable');
   }
   async function logAct(action, detail) { try { await fbAdd('log', { at: new Date().toISOString(), action, detail: detail || '' }); } catch (e) { } }
 
@@ -173,7 +194,7 @@ export function startPlant(spec) {
       <aside class="sidebar" id="sidebar">
         <div class="brand"><div class="brand-logo"><img src="icon-192.png" alt="logo"></div>
           <div class="brand-name">${esc(lab(spec.title))}<small>${esc(lab(spec.subtitle))}</small></div></div>
-        <nav class="nav">${NAV.map(([id, ic, t]) => `<div class="nav-item ${S.view === id ? 'active' : ''}" data-view="${id}">${svg(ic)}<span>${esc(L(t[0], t[1]))}</span><span class="nav-count" id="cnt_${id}" style="display:none"></span></div>`).join('')}</nav>
+        <nav class="nav">${NAV.filter(([id]) => allowedView(id)).map(([id, ic, t]) => `<div class="nav-item ${S.view === id ? 'active' : ''}" data-view="${id}">${svg(ic)}<span>${esc(L(t[0], t[1]))}</span><span class="nav-count" id="cnt_${id}" style="display:none"></span></div>`).join('')}</nav>
         <div class="sidebar-foot"><span class="dot-live" id="stDot"></span><span id="stTxt"></span></div>
       </aside>
       <div class="scrim" id="scrim"></div>
@@ -189,14 +210,25 @@ export function startPlant(spec) {
     setStatus();
   }
   function closeSide() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('scrim').classList.remove('show'); }
-  function go(v) { S.view = v; closeSide(); root.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === v)); renderCurrent(); }
+  function go(v) { if (!allowedView(v)) { v = 'dashboard'; } S.view = v; closeSide(); root.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === v)); renderCurrent(); }
   function setTitle(t, s) { document.getElementById('pgTitle').textContent = t; document.getElementById('pgSub').textContent = s || ''; }
   function destroyCharts() { Object.values(UI.charts).forEach(c => { try { c.destroy(); } catch (e) { } }); UI.charts = {}; }
+  function lockUI(c) {   // remove management controls for non-admin users
+    if (isAdminR()) return;
+    c.querySelectorAll('.rk-exportbar').forEach(el => el.remove());
+    if (S.view === 'entry') { c.querySelectorAll('[data-d]').forEach(el => el.remove()); return; }
+    c.querySelectorAll('#add').forEach(el => el.remove());
+    const hasActions = !!c.querySelector('.row-actions');
+    c.querySelectorAll('.row-actions').forEach(el => { const td = el.closest('td'); (td || el).remove(); });
+    if (hasActions) c.querySelectorAll('thead tr').forEach(tr => { const th = tr.lastElementChild; if (th && th.tagName === 'TH' && !th.textContent.trim()) th.remove(); });
+  }
   function renderCurrent() {
+    if (!allowedView(S.view)) S.view = 'dashboard';
     destroyCharts();
     const f = { dashboard: vDash, entry: vEntry, reports: vReports, equipment: vEquip, pm: vPm, cm: vCm, wo: vWo, log: vLog }[S.view];
     if (!f) return;
     f(document.getElementById('content'));
+    lockUI(document.getElementById('content'));
     [['equipment', S.equipment.length], ['pm', S.pm.length], ['cm', S.cm.filter(c => c.status === 'open').length], ['wo', S.wo.filter(w => w.status !== 'done' && w.status !== 'cancelled').length]].forEach(([id, n]) => {
       const e = document.getElementById('cnt_' + id); if (e) { e.style.display = n ? '' : 'none'; e.textContent = D(n); }
     });
@@ -334,7 +366,9 @@ export function startPlant(spec) {
       const merged = Object.assign({}, old && old.values ? old.values : {}, existing || !old ? values : values);
       await fbSet('daily', date, { date, values: merged, updatedAt: new Date().toISOString() });
       logAct(old ? L('ویرایش اطلاعات روزانه', 'Updated daily data') : L('ثبت اطلاعات روزانه', 'Entered daily data'), jStr(date));
-      toast(L('ذخیره شد', 'Saved'));
+      const lim = ((S.alerts && S.alerts.limits) || {})[spec.prefix.replace('_', '')] || {};
+      const out = ALLP.filter(p => { const l = lim[p.key], v = merged[p.key]; return l && v != null && ((l.max != null && v > l.max) || (l.min != null && v < l.min)); }).map(p => lab(p));
+      toast(out.length ? L('ذخیره شد — ⚠ خارج از حد مجاز: ', 'Saved — ⚠ outside limit: ') + out.join('، ') : L('ذخیره شد', 'Saved'));
     });
     const chk = () => { const m = document.querySelector('.modal'); if (!m || !m.querySelector('#f_date')) return; const d = dateVal(m, 'f_date'); const ex = S.daily.find(r => (r.date || r.id) === d); m.querySelector('#dayHint').style.display = (ex && !existing) ? '' : 'none'; if (ex && !existing) { ALLP.forEach(p => { const el = m.querySelector('#f_' + p.key); if (el && el.value === '' && ex.values && ex.values[p.key] != null) el.value = ex.values[p.key]; }); } };
     document.querySelectorAll('#f_date select').forEach(s => s.addEventListener('change', chk)); chk();
@@ -417,6 +451,60 @@ export function startPlant(spec) {
       charts: [{ title: L('تعمیرات / بازدیدها در هر بازه', 'Repairs / inspections per period'), type: 'bar', cfg: () => chartCfg('bar', labels, sets) },
         { title: L('وضعیت بازدیدها', 'Inspection status'), type: 'doughnut', cfg: () => ({ type: 'doughnut', data: { labels: [L('به‌روز', 'On time'), L('نزدیک موعد', 'Due soon'), L('معوق', 'Overdue')], datasets: [{ data: [pmS.ok, pmS.soon, pmS.overdue], backgroundColor: ['#1f9d76', '#f5a524', '#d43439'] }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: axisC() } } } } }) }] };
   }
+
+  /* =====================================================================
+     COMPREHENSIVE DAILY / MONTHLY REPORT (every recorded input & output)
+     ===================================================================== */
+  async function buildFull(r) {
+    const days = r.days, rng = { from: r.from, to: r.to };
+    const inR = (d) => RK.J.inRange(d, rng);
+    const recs = S.daily.filter(x => inR(x.date || x.id)).sort((a, b) => (a.date || a.id).localeCompare(b.date || b.id));
+    const byDate = {}; recs.forEach(x => { byDate[x.date || x.id] = x; });
+    const sections = [];
+    const missing = days.filter(d => !byDate[d] && d <= todayISO());
+    sections.push({ title: L('خلاصه', 'Summary'), kpis: [
+      { label: L('روزهای ثبت‌شده', 'Days recorded'), value: D(recs.length), unit: L('از ', 'of ') + D(days.length) },
+      { label: L('روزهای بدون ثبت', 'Days without data'), value: D(missing.length), unit: '' },
+      { label: L('تعمیرات ثبت‌شده', 'Repairs logged'), value: D(S.cm.filter(c => inR(c.date)).length), unit: '' },
+      { label: L('تعمیرات باز', 'Open repairs'), value: D(S.cm.filter(c => c.status === 'open').length), unit: '' }],
+      note: missing.length && r.kind === 'monthly' ? L('روزهای بدون ثبت: ', 'Days without data: ') + missing.map(d => isoToJ(d).day).map(D).join('، ') : '' });
+    spec.groups.forEach(g => {
+      const params = g.params, der = g.derived || [];
+      const cols = params.map(p => ({ k: p.key, head: lab(p) + (p.unit ? ` (${p.unit})` : ''), p })).concat(der.map(d => ({ k: d.key, head: lab(d) + (d.unit ? ` (${d.unit})` : ''), d })));
+      const CH = 6;
+      for (let i = 0; i < cols.length; i += CH) {
+        const part = cols.slice(i, i + CH);
+        const rows = recs.map(x => [jStr(x.date || x.id), ...part.map(c => {
+          if (c.p) { const v = (x.values || {})[c.k]; return v === null || v === undefined || v === '' ? '—' : fmtP(c.p, Number(v)); }
+          const base = {}; ALLP.forEach(p => { const v = (x.values || {})[p.key]; base[p.key] = v === null || v === undefined || v === '' ? null : Number(v); });
+          let v = null; try { v = c.d.fn(base); } catch (e) { } return v == null || !isFinite(v) ? '—' : num(v, c.d.dec !== undefined ? c.d.dec : 1);
+        })]);
+        if (r.kind === 'monthly' && recs.length > 1) {
+          rows.push([L('مجموع / میانگین', 'Total / Avg'), ...part.map(c => {
+            if (!c.p) return '';
+            const vs = recs.map(x => (x.values || {})[c.k]).filter(v => v !== null && v !== undefined && v !== '' && !isNaN(Number(v))).map(Number);
+            if (!vs.length) return '—';
+            const sum = vs.reduce((a, b) => a + b, 0); return c.p.agg === 'sum' ? 'Σ ' + fmtP(c.p, sum) : '⌀ ' + fmtP(c.p, sum / vs.length);
+          })]);
+        }
+        sections.push({ title: lab(g) + (cols.length > CH ? ` (${D(Math.floor(i / CH) + 1)}/${D(Math.ceil(cols.length / CH))})` : ''), table: { head: [L('تاریخ', 'Date'), ...part.map(c => c.head)], rows } });
+      }
+    });
+    // maintenance events in the period
+    const cms = S.cm.filter(c => inR(c.date)).sort((a, b) => a.date.localeCompare(b.date));
+    sections.push({ title: L('تعمیرات و خرابی‌های ثبت‌شده', 'Repairs & failures logged'), table: { head: [L('تاریخ', 'Date'), L('تجهیز', 'Equipment'), L('شرح', 'Issue'), L('اقدام', 'Action'), L('تکنسین', 'Technician'), L('وضعیت', 'Status')], rows: cms.map(c => [jStr(c.date), eqName(c.equipmentId), c.issue || '', c.action || '', c.technician || '', c.status === 'open' ? L('باز', 'Open') : L('بسته‌شده', 'Closed')]) } });
+    const pmRows = []; S.pm.forEach(p => { const h = new Set(Array.isArray(p.history) ? p.history : []); if (p.lastDone) h.add(p.lastDone); [...h].filter(inR).sort().forEach(d => pmRows.push([jStr(d), eqName(p.equipmentId), p.title || '', freqL(p.freqDays)])); });
+    sections.push({ title: L('بازدیدهای دوره‌ای انجام‌شده', 'Inspections performed'), table: { head: [L('تاریخ', 'Date'), L('تجهیز', 'Equipment'), L('بازدید', 'Inspection'), L('تناوب', 'Interval')], rows: pmRows } });
+    if (spec.workOrders) {
+      const wos = S.wo.filter(w => inR(w.date)).sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+      sections.push({ title: L('دستورکارها', 'Work orders'), table: { head: [L('شماره', 'No.'), L('تاریخ', 'Date'), L('تجهیز', 'Equipment'), L('نوع', 'Type'), L('اولویت', 'Priority'), L('شرح', 'Description'), L('مسئول', 'Assignee'), L('وضعیت', 'Status')], rows: wos.map(w => [w.no || '', jStr(w.date), w.equipmentId ? eqName(w.equipmentId) : '—', woTypeL(w.type), woPrioL(w.priority), w.description || '', w.assignee || '', woStatL(w.status)]) } });
+    }
+    if (isAdminR()) {
+      const lg = S.log.filter(l => inR((l.at || '').slice(0, 10))).sort((a, b) => (a.at || '').localeCompare(b.at || ''));
+      sections.push({ title: L('لاگ فعالیت کاربران', 'User activity log'), table: { head: [L('تاریخ و ساعت', 'Date & time'), L('عملیات', 'Action'), L('جزئیات', 'Details')], rows: lg.map(l => [jStr((l.at || '').slice(0, 10)) + ' ' + D((l.at || '').slice(11, 16)), l.action || '', l.detail || '']) } });
+    }
+    return { title: lab(spec.title) + ' — ' + (r.kind === 'daily' ? L('گزارش جامع روزانه', 'Comprehensive daily report') : L('گزارش جامع ماهانه', 'Comprehensive monthly report')), subtitle: r.label, meta: [[L('بخش', 'Section'), lab(spec.title)], [L('بازه', 'Period'), jStr(r.from) + (r.from !== r.to ? ' — ' + jStr(r.to) : '')]], sections };
+  }
   const scopes = () => spec.groups.map(g => [g.id, lab(g)]).concat([['maint', L('تعمیرات و بازدید', 'Maintenance')], ['all', L('گزارش جامع (همه)', 'Full report (all)')]]);
   const build = (id) => id === 'maint' ? buildMaint() : buildGroup(spec.groups.find(g => g.id === id));
   const scopeIds = () => UI.an.scope === 'all' ? spec.groups.map(g => g.id).concat(['maint']) : [UI.an.scope];
@@ -426,12 +514,13 @@ export function startPlant(spec) {
     const A = UI.an; if (!A.scope) A.scope = spec.groups[0].id;
     setTitle(L('گزارش‌ها و آمار', 'Reports & statistics'), L('آمار روزانه، ماهانه و سالانه با نمودار و خروجی PDF / Word / Excel', 'Daily, monthly & yearly statistics with charts and PDF / Word / Excel export'));
     const ys = new Set([curJY()]); S.daily.forEach(r => ys.add(isoToJ(r.date || r.id).year)); S.cm.forEach(r => r.date && ys.add(isoToJ(r.date).year));
-    c.innerHTML = `<div class="card"><div class="seg" id="anSc" style="margin-bottom:12px;">${scopes().map(([k, l]) => `<button class="btn btn-sm ${A.scope === k ? 'btn-primary' : 'btn-ghost'}" data-s="${k}">${esc(l)}</button>`).join('')}</div>
+    c.innerHTML = `<div id="fullHost"></div><div class="card"><div class="seg" id="anSc" style="margin-bottom:12px;">${scopes().map(([k, l]) => `<button class="btn btn-sm ${A.scope === k ? 'btn-primary' : 'btn-ghost'}" data-s="${k}">${esc(l)}</button>`).join('')}</div>
       <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
         <div class="seg" id="anMo">${[['daily', L('روزانه', 'Daily')], ['monthly', L('ماهانه', 'Monthly')], ['yearly', L('سالانه', 'Yearly')]].map(([k, l]) => `<button class="btn btn-sm ${A.mode === k ? 'btn-primary' : 'btn-ghost'}" data-m="${k}">${l}</button>`).join('')}</div>
         <div class="field" style="min-width:100px;${A.mode === 'yearly' ? 'display:none' : ''}"><label>${L('سال', 'Year')}</label><select id="anY">${[...ys].sort((a, b) => b - a).map(y => `<option value="${y}" ${y === A.jy ? 'selected' : ''}>${D(y)}</option>`).join('')}</select></div>
         <div class="field" style="min-width:120px;${A.mode === 'daily' ? '' : 'display:none'}"><label>${L('ماه', 'Month')}</label><select id="anM">${Array.from({ length: 12 }, (_, i) => `<option value="${i + 1}" ${i + 1 === A.jm ? 'selected' : ''}>${mName(i + 1)}</option>`).join('')}</select></div>
         <div style="flex:1"></div><div id="anExp">${RK.exportBarHTML()}</div></div></div><div id="anBody"></div>`;
+    RK.fullBar(document.getElementById('fullHost'), buildFull, () => spec.id + '-full', toast);
     c.querySelectorAll('#anSc [data-s]').forEach(b => b.onclick = () => { A.scope = b.dataset.s; vReports(c); });
     c.querySelectorAll('#anMo [data-m]').forEach(b => b.onclick = () => { A.mode = b.dataset.m; vReports(c); });
     document.getElementById('anY').onchange = (e) => { A.jy = +e.target.value; renderAnBody(); };
@@ -635,6 +724,7 @@ export function startPlant(spec) {
   window.addEventListener('message', (ev) => {
     const d = ev.data || {};
     if (d.rostampourTheme) { applyTheme(d.rostampourTheme); try { localStorage.setItem('rostampour-theme', d.rostampourTheme); } catch (e) { } if (S.ready) renderCurrent(); }
+    if (d.rostampourNav) applyNav(d.rostampourNav);
     if (d.rostampourLang) { try { localStorage.setItem('rostampour-lang', d.rostampourLang); } catch (e) { } if (d.rostampourLang !== shownLang) { if (S.ready) { shell(); renderCurrent(); } else noAuth(); } }
   });
   function noAuth() {
@@ -642,9 +732,19 @@ export function startPlant(spec) {
     document.documentElement.lang = isFa() ? 'fa' : 'en'; document.documentElement.dir = isFa() ? 'rtl' : 'ltr';
     root.innerHTML = `<div class="card login-note"><h3 style="margin-bottom:8px">${L('ابتدا وارد سامانه شوید', 'Please sign in first')}</h3><p style="color:var(--text-muted);font-size:13px;margin-bottom:16px">${L('این بخش فقط از داخل سامانه‌ی اصلی در دسترس است.', 'This section is available from inside the main application.')}</p><a class="btn btn-primary" href="index.html" target="_top">${L('رفتن به صفحه ورود', 'Go to sign-in')}</a></div>`;
   }
+  /* navigation requests from the shell (alert centre / global search) */
+  let navTry = 0;
+  function applyNav(n) {
+    const v = n && n.view;
+    if (!v) return;
+    const ok = () => { if (S.ready && ['dashboard', 'entry', 'reports', 'equipment', 'pm', 'cm', 'wo', 'log'].includes(v)) { if (allowedView(v)) go(v); return true; } return false; };
+    if (ok()) return;
+    clearTimeout(applyNav._t); navTry = 0;
+    (function retry() { if (ok() || ++navTry > 40) return; applyNav._t = setTimeout(retry, 300); })();
+  }
   onAuthStateChanged(auth, (user) => {
-    if (user && user.email === ADMIN_EMAIL) {
-      if (!S.ready) { S.ready = true; spec.groups.forEach(g => { }); if (!UI.an.scope) UI.an.scope = spec.groups[0].id; shell(); attach(); renderCurrent(); }
+    if (user && window.Role && window.Role.forUser(user)) {
+      if (!S.ready) { S.ready = true; spec.groups.forEach(g => { }); if (!UI.an.scope) UI.an.scope = spec.groups[0].id; shell(); attach(); renderCurrent(); try { parent.postMessage({ rostampourReady: spec.id }, '*'); } catch (e) { } }
     } else { S.ready = false; unsubs.forEach(u => { try { u(); } catch (e) { } }); unsubs = []; noAuth(); }
   });
   noAuth();

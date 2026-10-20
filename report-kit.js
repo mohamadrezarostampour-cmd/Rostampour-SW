@@ -111,11 +111,28 @@
     .rk table{width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:6px;}
     .rk th{background:#0b2a43;color:#fff;padding:5px 6px;border:1px solid #0b2a43;text-align:center;font-weight:600;}
     .rk td{padding:4px 6px;border:1px solid #cfe3e6;text-align:center;}
+    .rk td,.rk th{overflow-wrap:anywhere;word-break:break-word;}
     .rk tr:nth-child(even) td{background:#f2f8fa;}
     .rk .note{font-size:10.5px;color:#52708a;margin:4px 0;}
     .rk-foot{font-size:10px;color:#8aa0b5;text-align:center;padding:6px 0;}
   `;
   const ROWS_PER_BLOCK = 26;
+
+
+  /* make sure nothing of a block sticks out of its box (wide tables, long words, RTL overflow to the left) —
+     otherwise html2canvas would crop it; widen the render width until the whole block is inside */
+  function fitBlock(root, el, base) {
+    let W = base || 794;
+    for (let i = 0; i < 8; i++) {
+      root.style.width = W + 'px';
+      const r = el.getBoundingClientRect(); let minL = r.left, maxR = r.right;
+      el.querySelectorAll('*').forEach(n => { const b = n.getBoundingClientRect(); if (!b.width && !b.height) return; if (b.left < minL) minL = b.left; if (b.right > maxR) maxR = b.right; });
+      const over = (r.left - minL) + (maxR - r.right);
+      if (over <= 1 || W > 3000) break;
+      W += Math.ceil(over) + 6;
+    }
+    return W;
+  }
 
   /** Returns array of HTML strings (each is one non-splittable block) */
   RK.blocks = async function (rep) {
@@ -133,9 +150,9 @@
       let first = `<h2>${RK.esc(s.title)}</h2>`;
       if (s.kpis && s.kpis.length) first += `<div class="rk-kpis">${s.kpis.map(k => `<div class="rk-kpi"><div class="l">${RK.esc(k.label)}</div><div class="v">${RK.esc(k.value)}<span class="u">${RK.esc(k.unit || '')}</span></div></div>`).join('')}</div>`;
       const img = toDataUrl(s.chart);
-      if (img) first += `<img class="chart" src="${img}" alt="chart">`;
       if (s.note) first += `<div class="note">${RK.esc(s.note)}</div>`;
       out.push(`<div class="rk-block">${first}</div>`);
+      if (img) out.push(`<div class="rk-block"><img class="chart" src="${img}" alt="chart"></div>`);
       if (s.table && s.table.rows && s.table.rows.length) {
         const head = `<thead><tr>${s.table.head.map(h => `<th>${RK.esc(h)}</th>`).join('')}</tr></thead>`;
         for (let i = 0; i < s.table.rows.length; i += ROWS_PER_BLOCK) {
@@ -166,10 +183,22 @@
     const margin = 14, usableH = PH - margin * 2 - 14;
     let y = margin, page = 1;
     try {
-      for (const html of blocks) {
+      const queue = blocks.slice();
+      while (queue.length) {
+        const html = queue.shift();
         root.innerHTML = html;
         const el = root.firstElementChild;
-        const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
+        const W = fitBlock(root, el);
+        // a table block that would not fit on one page is split in two (never shrunk to unreadable size)
+        const tb = el.querySelector('table'), trs = tb ? tb.querySelectorAll('tbody tr') : [];
+        if (trs.length > 1 && el.getBoundingClientRect().height * ((PW - margin * 2) / W) > usableH) {
+          const half = Math.ceil(trs.length / 2), head = tb.querySelector('thead') ? tb.querySelector('thead').outerHTML : '';
+          const mk = (rows) => `<div class="rk-block"><table>${head}<tbody>${rows.map(r => r.outerHTML).join('')}</tbody></table></div>`;
+          const all = Array.from(trs);
+          queue.unshift(mk(all.slice(0, half)), mk(all.slice(half)));
+          continue;
+        }
+        const canvas = await html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false, windowWidth: Math.max(W + 40, 900), scrollX: 0, scrollY: 0 });
         const w = PW - margin * 2;
         const h = canvas.height * (w / canvas.width);
         if (y + h > PH - margin - 14 && y > margin) { pdf.addPage(); page++; y = margin; }
@@ -345,6 +374,66 @@
         } catch (e) { console.error(e); if (toast) toast(RK.isFa() ? 'خطا در ساخت گزارش — اتصال اینترنت را بررسی کنید' : 'Report failed — check your connection'); }
         btn.disabled = false; btn.textContent = old;
       };
+    });
+  };
+
+  /* ---------- Jalali helpers (shared) ---------- */
+  const JF = new Intl.DateTimeFormat('en-US-u-ca-persian', { year: 'numeric', month: 'numeric', day: 'numeric', timeZone: 'UTC' });
+  const jp = (d) => { const o = {}; JF.formatToParts(d).forEach(p => { if (p.type === 'year' || p.type === 'month' || p.type === 'day') o[p.type] = parseInt(p.value, 10); }); return o; };
+  const J = RK.J = {
+    todayISO: () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); },
+    isoToJ: (iso) => jp(new Date(String(iso).slice(0, 10) + 'T00:00:00Z')),
+    toISO: (jy, jm, jd) => {
+      let g = new Date(Date.UTC(jy + 621, jm - 1, jd));
+      for (let i = 0; i < 8; i++) { const p = jp(g); if (p.year === jy && p.month === jm && p.day === jd) return g.toISOString().slice(0, 10); g = new Date(g.getTime() + ((jy - p.year) * 365 + (jm - p.month) * 30 + (jd - p.day)) * 86400000); }
+      return g.toISOString().slice(0, 10);
+    },
+    dim: (jy, jm) => { for (let d = 31; d >= 28; d--) { const p = J.isoToJ(J.toISO(jy, jm, d)); if (p.year === jy && p.month === jm && p.day === d) return d; } return 29; },
+    str: (iso) => { if (!iso) return '—'; const p = J.isoToJ(iso); return RK.digits(p.year + '/' + String(p.month).padStart(2, '0') + '/' + String(p.day).padStart(2, '0')); },
+    mFa: ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'],
+    mEn: ['Farvardin', 'Ordibehesht', 'Khordad', 'Tir', 'Mordad', 'Shahrivar', 'Mehr', 'Aban', 'Azar', 'Dey', 'Bahman', 'Esfand'],
+    mName: (m) => (RK.isFa() ? J.mFa : J.mEn)[m - 1],
+    addDays: (iso, n) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); },
+    inRange: (iso, r) => { const d = String(iso || '').slice(0, 10); return d >= r.from && d <= r.to; }
+  };
+
+  /**
+   * Comprehensive daily / monthly report bar.
+   * RK.fullBar(hostEl, build, baseName, toast)
+   *   build(range) -> report object (async ok). range = { kind:'daily'|'monthly', from, to, label, jy, jm, jd, days:[iso…] }
+   */
+  RK.fullBar = function (host, build, baseName, toast) {
+    const fa = RK.isFa(), t = J.isoToJ(J.todayISO());
+    const years = []; for (let y = t.year - 6; y <= t.year + 1; y++) years.push(y);
+    const st = 'padding:8px 10px;border-radius:9px;border:1px solid var(--border-strong,#c5d3dc);background:var(--panel-2,#eef5f7);color:var(--text,#0f2438);font-family:inherit;font-size:13px;';
+    host.innerHTML = `<div class="card" style="padding:14px 16px;margin-bottom:14px;border-inline-start:4px solid var(--mc,#1565c0)">
+      <div style="font-weight:800;font-size:14px;margin-bottom:4px">📑 ${fa ? 'گزارش جامع و یکپارچه (روزانه / ماهانه)' : 'Comprehensive integrated report (daily / monthly)'}</div>
+      <div style="font-size:12px;color:var(--text-muted,#52708a);margin-bottom:10px;line-height:1.9">${fa ? 'شامل همه اطلاعات ثبت‌شده در بازه انتخابی: ورودی‌ها، خروجی‌ها، مقادیر، تجهیزات، بازدیدها، تعمیرات و لاگ.' : 'Includes everything recorded in the chosen period: inputs, outputs, values, equipment, inspections, repairs and log.'}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <select id="fbKind" style="${st}"><option value="daily">${fa ? 'روزانه' : 'Daily'}</option><option value="monthly" selected>${fa ? 'ماهانه' : 'Monthly'}</option></select>
+        <select id="fbY" style="${st}">${years.map(y => `<option value="${y}" ${y === t.year ? 'selected' : ''}>${RK.digits(y)}</option>`).join('')}</select>
+        <select id="fbM" style="${st}">${Array.from({ length: 12 }, (_, i) => `<option value="${i + 1}" ${i + 1 === t.month ? 'selected' : ''}>${J.mName(i + 1)}</option>`).join('')}</select>
+        <select id="fbD" style="${st}">${Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}" ${i + 1 === t.day ? 'selected' : ''}>${RK.digits(i + 1)}</option>`).join('')}</select>
+        <button class="btn btn-primary" data-fb="pdf">📄 PDF</button><button class="btn" data-fb="word">📝 Word</button><button class="btn" data-fb="excel">📊 Excel</button>
+      </div></div>`;
+    const kindEl = host.querySelector('#fbKind'), dEl = host.querySelector('#fbD');
+    const sync = () => { dEl.style.display = kindEl.value === 'daily' ? '' : 'none'; };
+    kindEl.onchange = sync; sync();
+    const range = () => {
+      const kind = kindEl.value, jy = +host.querySelector('#fbY').value, jm = +host.querySelector('#fbM').value;
+      let jd = Math.min(+dEl.value, J.dim(jy, jm));
+      if (kind === 'daily') { const iso = J.toISO(jy, jm, jd); return { kind, from: iso, to: iso, label: J.str(iso), jy, jm, jd, days: [iso] }; }
+      const from = J.toISO(jy, jm, 1), n = J.dim(jy, jm), days = []; for (let d = 1; d <= n; d++) days.push(J.toISO(jy, jm, d));
+      return { kind, from, to: days[n - 1], label: J.mName(jm) + ' ' + RK.digits(jy), jy, jm, jd: 0, days };
+    };
+    host.querySelectorAll('[data-fb]').forEach(btn => btn.onclick = async () => {
+      const k = btn.dataset.fb, old = btn.textContent; btn.disabled = true; btn.textContent = '…';
+      try {
+        const r = range(), rep = await build(r), name = (typeof baseName === 'function' ? baseName() : baseName) + '-' + (r.kind === 'daily' ? r.from : r.jy + '-' + String(r.jm).padStart(2, '0'));
+        if (k === 'pdf') await RK.pdf(rep, name); else if (k === 'word') await RK.word(rep, name); else await RK.excel(rep, name);
+        if (toast) toast(fa ? 'گزارش آماده شد' : 'Report ready');
+      } catch (e) { console.error(e); if (toast) toast(fa ? 'خطا در ساخت گزارش — اتصال اینترنت را بررسی کنید' : 'Report failed — check your connection'); }
+      btn.disabled = false; btn.textContent = old;
     });
   };
 

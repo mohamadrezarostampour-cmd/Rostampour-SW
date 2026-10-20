@@ -2,52 +2,10 @@
 <html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>تصفیه خانه فاضلاب</title><link rel="stylesheet" href="module.css"></head>
 <body><div id="root"></div>
+<script src="role.js"></script>
 <script src="report-kit.js"></script>
+<script src="plant-specs.js"></script>
 <script type="module">
 import { startPlant } from './plant-core.js';
-const P = (key, fa, en, unit, agg, o) => Object.assign({ key, fa, en, unit, agg: agg || 'avg' }, o || {});
-const eff = (a, b) => (base) => (base[a] > 0 && base[b] != null) ? (base[a] - base[b]) / base[a] * 100 : null;
-startPlant({
-  id: 'sewage', prefix: 'sw_', color: '#00a896', workOrders: false,
-  title: { fa: 'تصفیه خانه فاضلاب', en: 'Wastewater Treatment Plant' },
-  subtitle: { fa: 'بخش ۴ — آمار، تجهیزات، بازدید و تعمیرات', en: 'Section 4 — statistics, equipment, inspections & repairs' },
-  categories: [
-    { key: 'pump', fa: 'پمپ', en: 'Pump' }, { key: 'blower', fa: 'دمنده (بلوور)', en: 'Blower' },
-    { key: 'membrane', fa: 'غشا / MBR', en: 'Membrane / MBR' }, { key: 'chlor', fa: 'کلرزنی', en: 'Chlorination' },
-    { key: 'elec', fa: 'برق و ابزاردقیق', en: 'Electrical & instruments' }, { key: 'screen', fa: 'آشغالگیر / ورودی', en: 'Screen / inlet' },
-    { key: 'other', fa: 'سایر', en: 'Other' }],
-  groups: [
-    { id: 'flow', fa: 'حجم‌ها و کلر', en: 'Volumes & chlorine',
-      params: [
-        P('inflow', 'حجم دبی فاضلاب ورودی', 'Inflow volume', 'm³', 'sum', { dec: 0, min: 0 }),
-        P('permeate', 'حجم آب تولیدی پرمیت', 'Permeate produced', 'm³', 'sum', { dec: 0, min: 0 }),
-        P('clUse', 'مصرف کلر', 'Chlorine consumption', 'L', 'sum', { dec: 1, min: 0 }),
-        P('clFree', 'میانگین کلر آزاد آب تولیدی', 'Avg free chlorine of product water', 'mg/L', 'avg', { dec: 2, min: 0 })],
-      derived: [{ key: 'rec', fa: 'نسبت تولید به ورودی', en: 'Permeate / inflow', unit: '%', dec: 1, fn: b => (b.inflow > 0 && b.permeate != null) ? b.permeate / b.inflow * 100 : null }],
-      charts: [
-        { title: { fa: 'حجم فاضلاب ورودی و آب پرمیت', en: 'Inflow vs permeate volume' }, type: 'bar', series: ['inflow', 'permeate'] },
-        { title: { fa: 'مصرف کلر', en: 'Chlorine consumption' }, type: 'bar', series: ['clUse'], colors: ['#f5a524'] },
-        { title: { fa: 'کلر آزاد آب تولیدی', en: 'Free chlorine (product)' }, series: ['clFree'], colors: ['#7c5cff'] }] },
-    { id: 'quality', fa: 'کیفیت ورودی / خروجی', en: 'Inlet / outlet quality',
-      params: [
-        P('bodIn', 'BOD ورودی', 'BOD inlet', 'mg/L', 'avg', { dec: 1, min: 0 }), P('bodOut', 'BOD خروجی', 'BOD outlet', 'mg/L', 'avg', { dec: 1, min: 0 }),
-        P('codIn', 'COD ورودی', 'COD inlet', 'mg/L', 'avg', { dec: 1, min: 0 }), P('codOut', 'COD خروجی', 'COD outlet', 'mg/L', 'avg', { dec: 1, min: 0 }),
-        P('tssIn', 'TSS ورودی', 'TSS inlet', 'mg/L', 'avg', { dec: 1, min: 0 }), P('tssOut', 'TSS خروجی', 'TSS outlet', 'mg/L', 'avg', { dec: 1, min: 0 }),
-        P('phIn', 'pH ورودی', 'pH inlet', '', 'avg', { dec: 2, min: 0, max: 14 }), P('phOut', 'pH خروجی', 'pH outlet', '', 'avg', { dec: 2, min: 0, max: 14 })],
-      derived: [
-        { key: 'bodEff', fa: 'راندمان حذف BOD', en: 'BOD removal', unit: '%', dec: 1, fn: eff('bodIn', 'bodOut') },
-        { key: 'codEff', fa: 'راندمان حذف COD', en: 'COD removal', unit: '%', dec: 1, fn: eff('codIn', 'codOut') },
-        { key: 'tssEff', fa: 'راندمان حذف TSS', en: 'TSS removal', unit: '%', dec: 1, fn: eff('tssIn', 'tssOut') }],
-      charts: [
-        { title: { fa: 'BOD ورودی و خروجی', en: 'BOD inlet / outlet' }, series: ['bodIn', 'bodOut'] },
-        { title: { fa: 'COD ورودی و خروجی', en: 'COD inlet / outlet' }, series: ['codIn', 'codOut'] },
-        { title: { fa: 'TSS ورودی و خروجی', en: 'TSS inlet / outlet' }, series: ['tssIn', 'tssOut'] },
-        { title: { fa: 'pH ورودی و خروجی', en: 'pH inlet / outlet' }, series: ['phIn', 'phOut'], zero: false },
-        { title: { fa: 'راندمان حذف آلاینده‌ها (٪)', en: 'Removal efficiency (%)' }, series: ['bodEff', 'codEff', 'tssEff'] }] }
-  ],
-  dashParams: ['inflow', 'permeate', 'clUse', 'clFree', 'bodIn', 'bodOut', 'codIn', 'codOut', 'tssIn', 'tssOut', 'phIn', 'phOut'],
-  dashCharts: [
-    { title: { fa: 'ورودی و پرمیت', en: 'Inflow & permeate' }, type: 'bar', series: ['inflow', 'permeate'] },
-    { title: { fa: 'BOD / COD', en: 'BOD / COD' }, series: ['bodIn', 'bodOut', 'codIn', 'codOut'] }]
-});
+startPlant(window.PLANT_SPECS.sewage);
 </script></body></html>

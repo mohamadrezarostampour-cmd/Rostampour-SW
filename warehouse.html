@@ -13,6 +13,7 @@
 <meta name="apple-mobile-web-app-title" content="Rostampour Warehouse">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="role.js"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
@@ -26,9 +27,13 @@
     messagingSenderId: "790326632020",
     appId: "1:790326632020:web:91cb2da018fc5e061717c1"
   };
-  const ROLE_MAP_EMAIL = {
-    'rostampour@rostampour-system.local': 'admin',
-    'station@rostampour-system.local': 'keeper'
+  /* admin -> admin; operator / viewer -> read-only (guest). The warehouse has no daily entry,
+     so only the administrator may record intake, issue or edit parts. */
+  const whRoleOf = (user) => {
+    if (!user) return null;
+    if (user.isAnonymous) return 'guest';
+    const r = Role.forUser(user);
+    return r === 'admin' ? 'admin' : (r === 'operator' || r === 'viewer') ? 'guest' : null;
   };
   const fbApp = initializeApp(firebaseConfig);
   const fbAuth = getAuth(fbApp);
@@ -48,7 +53,7 @@
     }
   };
   onAuthStateChanged(fbAuth, (user) => {
-    const role = user ? (ROLE_MAP_EMAIL[user.email] || null) : null;
+    const role = whRoleOf(user);
     window.dispatchEvent(new CustomEvent('wh-auth-state', { detail: { user, role } }));
   });
 </script>
@@ -71,6 +76,7 @@
   --shadow: 0 8px 28px rgba(10,50,65,.10);
   --radius:14px;
 }
+:root,body.dark-theme{ --panel-2:var(--bg-3); --text:var(--txt-1); --text-muted:var(--txt-2); --border-strong:var(--line); --mc:var(--accent); }
 body.dark-theme{
   --bg-0:#081520;
   --bg-1:#0d2030;
@@ -301,7 +307,15 @@ function toggleTheme(){
   setTheme(next, true);
   try{ window.parent && window.parent!==window && window.parent.postMessage({rostampourTheme:next}, "*"); }catch(e){}
 }
+function whApplyNav(n){
+  const v=n && n.view; if(!v) return;
+  let tries=0;
+  const ok=()=>{ if(STATE.currentUser && NAV_ITEMS.some(i=>i.id===v)){ if(NAV_ITEMS.find(i=>i.id===v).roles.includes(STATE.currentUser.role)) renderPage(v); return true; } return false; };
+  if(ok()) return;
+  (function retry(){ if(ok() || ++tries>40) return; setTimeout(retry,300); })();
+}
 window.addEventListener("message", (ev)=>{
+  if(ev.data && ev.data.rostampourNav) whApplyNav(ev.data.rostampourNav);
   if(ev.data && (ev.data.rostampourTheme==="light" || ev.data.rostampourTheme==="dark")){
     setTheme(ev.data.rostampourTheme, true);
   }
@@ -347,8 +361,8 @@ const CONFIG = {
 
 /* ---------------- USERS ---------------- */
 const USERS = {
-  "rostampour": {password:"3530012319", role:"admin",  displayName:"مدیر سامانه"},
-  "station":    {password:"09170394054", role:"keeper", displayName:"انباردار"}
+  "rostampour": {password:"", role:"admin",  displayName:"مدیر سامانه"},
+  "station":    {password:"", role:"keeper", displayName:"انباردار"}
 };
 const ROLE_LABELS = {admin:"مدیر سامانه", keeper:"انباردار", guest:"بازدیدکننده (فقط مشاهده)"};
 
@@ -456,6 +470,7 @@ function loadLocal(){
 }
 function markPending(isPending){
   try{ localStorage.setItem(LOCAL_PENDING_KEY, isPending?"1":"0"); }catch(e){}
+  try{ parent.postMessage({rostampourSync:{src:"warehouse", pending:!!isPending}}, "*"); }catch(e){}
 }
 function hasPendingChanges(){
   try{ return localStorage.getItem(LOCAL_PENDING_KEY)==="1"; }catch(e){ return false; }
@@ -545,7 +560,7 @@ async function enterWarehouseApp(role, username, displayName){
   document.getElementById("loginScreen").style.display="none";
   document.getElementById("appScreen").style.display="block";
   document.getElementById("userName").textContent=displayName;
-  document.getElementById("userRole").textContent=ROLE_LABELS[role];
+  document.getElementById("userRole").textContent=(window.Role && Role.get()) ? Role.label(Role.get()) : ROLE_LABELS[role];
   document.getElementById("userAv").textContent = role==="admin"?"👑":role==="keeper"?"🧑‍🔧":"👁️";
   await loadData();
   buildNav();
@@ -577,9 +592,10 @@ window.addEventListener("wh-auth-state", (ev)=>{
   const { user, role } = ev.detail;
   if(user && role && !whSsoHandled){
     whSsoHandled = true;
-    const username = role==="admin" ? "rostampour" : "station";
-    const displayName = USERS[username].displayName;
+    const username = (window.Role && Role.user()) || (role==="admin" ? "rostampour" : "");
+    const displayName = role==="admin" ? "مدیر سامانه" : username;
     enterWarehouseApp(role, username, displayName);
+    try{ parent.postMessage({rostampourReady:"warehouse"}, "*"); }catch(e){}
   } else if(!user){
     whSsoHandled = false;
   }
@@ -1016,6 +1032,7 @@ function renderReports(main){
   const now=todayJalali();
   main.innerHTML=`
     <div class="topbar"><div><div class="page-title">گزارش‌ها</div><div class="page-sub">گزارش ماهانه گردش قطعات و گزارش کسری موجودی</div></div></div>
+<div id="fullHost"></div>
     <div class="card" style="margin-bottom:16px;">
       <div style="font-weight:700; margin-bottom:14px;">گزارش ماهانه ورود و خروج قطعات</div>
       <div class="toolbar">
@@ -1033,6 +1050,7 @@ function renderReports(main){
       <div id="shortagePreviewWrap" class="table-wrap"></div>
     </div>
   `;
+  try{ RK.fullBar(document.getElementById('fullHost'), whBuildFull, 'warehouse-full', (m)=>toast(m)); }catch(e){ console.error(e); }
   document.getElementById("rep_year").onchange=renderMonthlyPreview;
   document.getElementById("rep_month").onchange=renderMonthlyPreview;
   renderMonthlyPreview();
@@ -1172,6 +1190,41 @@ async function whRun(kind, rep, base){
     if(kind==="pdf") await RK.pdf(rep,f); else if(kind==="word") await RK.word(rep,f); else await RK.excel(rep,f);
     toast(RK.isFa()?"گزارش آماده شد":"Report ready");
   }catch(e){ console.error(e); toast(RK.isFa()?"خطا در ساخت گزارش؛ اتصال اینترنت را بررسی کنید":"Report failed — check your connection","err"); }
+}
+
+/* ===== comprehensive daily / monthly warehouse report: every intake, issue, stock position and log entry ===== */
+async function whBuildFull(r){
+  const inR=(iso)=>RK.J.inRange(String(iso||"").slice(0,10), r);
+  const D0=STATE.data, items=D0.items||[], txs=D0.transactions||[], itemBy={}; items.forEach(i=>itemBy[i.id]=i);
+  const nm=(id)=>itemBy[id]?itemBy[id].name:"—";
+  const gnm=(id)=>{ const it=itemBy[id]; return it?groupName(it.groupId):"—"; };
+  const jt=(iso)=>RK.J.str(String(iso).slice(0,10))+" "+RK.digits(String(iso).slice(11,16));
+  const q=(v)=>RK.num(v,0), W2=(fa,en)=>RK.isFa()?fa:en;
+  const per=txs.filter(t=>inR(t.date)).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+  const tin=per.filter(t=>t.type==="in"), tout=per.filter(t=>t.type==="out");
+  const qsum=(a)=>a.reduce((s,t)=>s+(Number(t.qty)||0),0);
+  const sections=[{title:W2("خلاصه","Summary"),kpis:[
+    {label:W2("تراکنش ورودی","Intake transactions"),value:RK.digits(tin.length),unit:""},{label:W2("مجموع تعداد ورودی","Total intake qty"),value:q(qsum(tin)),unit:""},
+    {label:W2("تراکنش خروجی","Issue transactions"),value:RK.digits(tout.length),unit:""},{label:W2("مجموع تعداد خروجی","Total issue qty"),value:q(qsum(tout)),unit:""},
+    {label:W2("اقلام موجود در انبار","Items in store"),value:RK.digits(items.length),unit:""}]}];
+  const trow=(t)=>[jt(t.date),nm(t.itemId),gnm(t.itemId),q(t.qty),t.description||"",t.user||""];
+  const thead=[W2("تاریخ و ساعت","Date & time"),W2("قطعه","Part"),W2("گروه","Group"),W2("تعداد","Qty"),W2("توضیحات","Notes"),W2("کاربر","User")];
+  sections.push({title:W2("ورودی‌های انبار","Warehouse intake"),table:{head:thead,rows:tin.map(trow)}});
+  sections.push({title:W2("خروجی‌های انبار","Warehouse issues"),table:{head:thead,rows:tout.map(trow)}});
+  // stock position: closing = current - later intake + later issue ; opening = closing - in + out (inside the period)
+  const moved={}; per.forEach(t=>{ const o=moved[t.itemId]=moved[t.itemId]||{i:0,o:0}; if(t.type==="in") o.i+=Number(t.qty)||0; else o.o+=Number(t.qty)||0; });
+  const after={}; txs.filter(t=>String(t.date).slice(0,10)>r.to).forEach(t=>{ const o=after[t.itemId]=after[t.itemId]||{i:0,o:0}; if(t.type==="in") o.i+=Number(t.qty)||0; else o.o+=Number(t.qty)||0; });
+  const rows=items.filter(i=>moved[i.id]).map(i=>{ const a=after[i.id]||{i:0,o:0}, m=moved[i.id]; const close=(Number(i.currentStock)||0)-a.i+a.o, open=close-m.i+m.o; return [i.name,groupName(i.groupId),q(open),q(m.i),q(m.o),q(close),q(i.currentStock)]; });
+  sections.push({title:W2("گردش و موجودی قطعات در بازه","Part movement & stock position"),table:{head:[W2("قطعه","Part"),W2("گروه","Group"),W2("موجودی اول","Opening"),W2("ورودی","In"),W2("خروجی","Out"),W2("موجودی پایان","Closing"),W2("موجودی فعلی","Current")],rows}});
+  const created=items.filter(i=>inR(i.createdAt));
+  sections.push({title:W2("قطعات جدید ثبت‌شده","New parts registered"),table:{head:[W2("تاریخ","Date"),W2("نام","Name"),W2("مشخصات","Specs"),W2("گروه","Group"),W2("موجودی اولیه","Initial stock")],rows:created.map(i=>[RK.J.str(String(i.createdAt).slice(0,10)),i.name,i.specs||"",groupName(i.groupId),q(i.currentStock)])}});
+  const low=items.filter(i=>Number(i.currentStock)<CONFIG.LOW_STOCK_THRESHOLD);
+  sections.push({title:W2("اقلام کسری / رو به اتمام (وضعیت فعلی)","Low / out-of-stock items (current)"),table:{head:[W2("قطعه","Part"),W2("گروه","Group"),W2("موجودی","Stock")],rows:low.map(i=>[i.name,groupName(i.groupId),q(i.currentStock)])}});
+  if(STATE.currentUser && STATE.currentUser.role==="admin"){
+    const lg=(D0.activityLog||[]).filter(l=>inR(l.date)).sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+    sections.push({title:W2("لاگ فعالیت‌ها","Activity log"),table:{head:[W2("تاریخ و ساعت","Date & time"),W2("کاربر","User"),W2("عملیات","Action"),W2("جزئیات","Details")],rows:lg.map(l=>[jt(l.date),l.user||"",l.action||"",l.details||""])}});
+  }
+  return {title:W2("انبار قطعات مصرفی — ","Spare Parts Warehouse — ")+(r.kind==="daily"?W2("گزارش جامع روزانه","Comprehensive daily report"):W2("گزارش جامع ماهانه","Comprehensive monthly report")),subtitle:r.label,meta:[[W2("بازه","Period"),RK.J.str(r.from)+(r.from!==r.to?" — "+RK.J.str(r.to):"")]],sections};
 }
 const WFA = ()=>RK.isFa();
 const W = (fa,en)=>WFA()?fa:en;
