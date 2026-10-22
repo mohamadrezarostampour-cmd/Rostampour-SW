@@ -1,7 +1,7 @@
-const CACHE_NAME = 'rostampour-unified-v3';
+const CACHE_NAME = 'rostampour-unified-v4';
 const ASSETS = [
   './','./index.html','./cmm.html','./warehouse.html','./meters.html','./sewage.html','./desal.html',
-  './module.css','./role.js','./shell-tools.js','./plant-specs.js','./report-kit.js','./station-reports.js','./plant-core.js','./i18n-en.js','./vendor-docx.js',
+  './module.css','./role.js','./shell-tools.js','./plant-specs.js','./report-kit.js','./station-reports.js','./pfd.js','./plant-core.js','./i18n-en.js','./vendor-docx.js',
   './manifest.json','./icon-192.png','./icon-512.png','./favicon-32.png','./apple-touch-icon.png','./report-logo.png','./banner-logo.png'
 ];
 
