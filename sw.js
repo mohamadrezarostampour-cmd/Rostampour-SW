@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rostampour-unified-v4';
+const CACHE_NAME = 'rostampour-unified-v5';
 const ASSETS = [
   './','./index.html','./cmm.html','./warehouse.html','./meters.html','./sewage.html','./desal.html',
   './module.css','./role.js','./shell-tools.js','./plant-specs.js','./report-kit.js','./station-reports.js','./pfd.js','./plant-core.js','./i18n-en.js','./vendor-docx.js',

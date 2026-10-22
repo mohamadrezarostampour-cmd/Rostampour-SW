@@ -217,6 +217,19 @@
       { label: L('مجموع تولید کارخانه‌ها', 'Plants production'), value: n0(sum(pp)), unit: 'm³' },
       { label: L('مجموع پمپاژ و بارگیری', 'Pumping & loading'), value: n0(sum(pu)), unit: 'm³' },
       { label: L('تعمیرات ثبت‌شده', 'Repairs logged'), value: D(state.cm.filter(c => inR(c.date)).length), unit: '' }] }];
+    // PFD snapshot (state of the last recorded day) + mass balance of the period
+    try {
+      if (window.PFD) {
+        const dd = r.days.filter(d => pp.some(x => x.date === d) || pu.some(x => x.date === d) || tr.some(x => String(x.datetime).slice(0, 10) === d));
+        const pd = dd.length ? dd[dd.length - 1] : null;
+        if (pd) {
+          const img = await window.PFD.snapshot(state, pd);
+          if (img) sections.push({ title: L('نقشه PFD ایستگاه', 'Station PFD map'), note: L('وضعیت مخازن، تولید کارخانه‌ها، پمپاژ و بارگیری بر اساس ثبت‌های ' + jDate(pd) + ' (آخرین روز دارای ثبت در این بازه). سطح مخزن ایستگاه ثبت نمی‌شود.', 'Tank levels, plant production, pumping and loading from the records of ' + jDate(pd) + ' (last recorded day in this period). The station tank level is not recorded.'), chart: img });
+        }
+        const br = window.PFD.balance(state, r.days);
+        if (br.length) sections.push({ title: L('تراز جرمی (تولید − پمپاژ − بارگیری)', 'Mass balance (production − pumping − loading)'), table: { head: [L('تاریخ', 'Date'), L('تولید m³', 'Production m³'), L('پمپاژ + بارگیری m³', 'Pumping + loading m³'), L('اختلاف m³', 'Difference m³'), L('وضعیت', 'Status')], rows: br.map(x => [jDate(x.date), n0(x.P), n0(x.out), n0(x.res), x.status === 'ok' ? L('عادی', 'Normal') : x.status === 'warn' ? L('مشکوک', 'Suspect') : L('ناتراز', 'Unbalanced')]) } });
+      }
+    } catch (e) { console.error(e); }
     // tanks: every reading
     sections.push({ title: L('قرائت مخازن آب (همه قرائت‌ها)', 'Water tank readings (all)'), table: { head: [L('تاریخ', 'Date'), L('ساعت', 'Time'), L('مخزن', 'Tank'), L('حجم m³', 'Volume m³'), L('درصد پری', 'Fill %')], rows: tr.map(x => { const m = TANKS_META[x.tankKey] || { label: x.tankKey, capacity: 0 }; return [jDate(String(x.datetime).slice(0, 10)), D(String(x.datetime).slice(11, 16)), m.label, n0(x.volume), m.capacity ? D(Math.round(Number(x.volume) / m.capacity * 100)) + '%' : '—']; }) } });
     if (r.kind === 'monthly') {
